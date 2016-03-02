@@ -1,0 +1,25 @@
+<configuration scan="true" scanPeriod="30 seconds">
+
+  <property name="PATH" value="${LOG_FOLDER:-.}" />
+  <property name="PATTERN_DEFAULT" value="%date{ISO8601} [%-5level] %-11.-11marker [%thread] %logger{50} - %message%n" />
+  <property name="LEVEL_DEFAULT" value="${LOG_LEVEL:-INFO}" />
+
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${PATTERN_DEFAULT}</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${PATH}/application.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${PATH}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+    </rollingPolicy>
+  </appender>
+
+  <root level="${LEVEL_DEFAULT}">
+    <appender-ref ref="STDOUT" />
+    <appender-ref ref="FILE" />
+  </root>
+
+</configuration>

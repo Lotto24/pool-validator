@@ -1,0 +1,10 @@
+{
+  "retailer-order-reference": "3581044c-be0d-4f4d-b86e-69c3e7c05cb2",
+  "creation-time": "2015-12-13T01:26:35.934Z",
+  "order-digest": "sha256=07ggP6UWr8P/KAXApgtnnoLxu+/LclmsUTq7nvBzWcw=",
+  "retailer": {
+    "href": "http://www.operator.com/entities/retailer"
+  },
+  "nominal-price": {},
+  "order-processing-result": "accepted"
+}

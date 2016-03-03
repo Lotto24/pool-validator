@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "retailer": {
+      "href": "http://www.operator.com/entities/retailer"
+    },
+    "retail-customer": "4ce49757-5a95-42a4-9e2f-db59d4f06c7b",
+    "retailer-order-reference": "3581044c-be0d-4f4d-b86e-69c3e7c05cb2",
+    "creation-date": "2015-12-13T01:26:35.101Z[UTC]"
+  },
+  "gaming-product-orders": {
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ejs": {
+      "bets": [
+        {
+          "numbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "euronumbers": [
+            1,
+            8
+          ]
+        },
+        {
+          "numbers": [
+            2,
+            4,
+            6,
+            29,
+            32
+          ],
+          "euronumbers": [
+            4,
+            5
+          ]
+        }
+      ],
+      "participation-pools": {
+        "first-date": "2015-12-18",
+        "draw-count": 8
+      }
+    }
+  }
+}

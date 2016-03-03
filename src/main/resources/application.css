@@ -1,0 +1,716 @@
+/**
+==============================================================================
+Global values (custom colors etc)
+==============================================================================
+**/
+
+.root {
+    bar_top: #cad1d8;
+    bar_bottom: #e2e5e9;
+
+    viewheader_top: derive(bar_top, -10%);
+    viewheader_bottom: derive(bar_bottom, -10%);
+
+    canvas_top: #e9ecf1;
+    canvas_bottom: #d1d8df;
+
+    contour_top: rgba(255, 255, 255, 0.7);
+    contour_bottom: rgba(0,0,0, 0.15);
+
+    success_green: rgb(28, 184, 65);
+
+    black_55: rgba(0, 0, 0, 0.55);
+
+    innershadow_edit: innershadow(three-pass-box, black_55, 2, 0.0, 0, 1);
+}
+
+.barcolors{
+    -fx-background-color: linear-gradient(bar_top, bar_bottom);
+}
+
+.viewcolors {
+    -fx-background-color: linear-gradient(canvas_top, canvas_bottom);
+    -fx-border-color: contour_top transparent contour_bottom transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+
+/**
+==============================================================================
+Root
+==============================================================================
+**/
+.root {
+    -fx-pref-width: 1000;
+    -fx-pref-height: 800;
+}
+
+
+/**
+==============================================================================
+application-toolbar
+==============================================================================
+**/
+
+.application-view  .application-toolbar {
+    -fx-min-height: 35px;
+    -fx-padding: 0 0 0 15;
+}
+
+.application-view  .application-toolbar .svg-icon.openarchive {
+    -fx-padding: 0 0 0 15;
+    -fx-min-width: 19;
+    -fx-max-width: 19;
+    -fx-min-height: 15;
+    -fx-max-height: 15;
+}
+
+.application-view  .application-toolbar .label.drawtime{
+    -fx-font-size: 10;
+}
+
+.application-view  .application-toolbar .label.drawtime.custom{
+    -fx-text-fill: rgb(220,90,10);
+}
+
+.application-view  .application-toolbar LocalDateTimeTextField {
+    -fx-min-width: 230;
+    -fx-max-width: 230;
+    -fx-pref-width: 230;
+}
+
+.application-view  .application-toolbar .resetcustomdrawdate {
+    -fx-translate-x: -36px;
+}
+
+.application-view  .application-toolbar .resetcustomdrawdate:hover{
+    -fx-background-color: derive(darkgray, 20%);
+}
+
+.application-view  .application-toolbar .zoneid {
+    -fx-pref-width: 190;
+}
+
+.application-view  .application-toolbar .cancelvalidation {
+    -fx-pref-width: 140;
+}
+
+.application-view  .application-toolbar .validatearchive {
+    -fx-pref-width: 140;
+    -fx-background-color: -fx-shadow-highlight-color, -fx-outer-border, -fx-inner-border, success_green;
+    -fx-font-weight: bold;
+}
+.application-view  .application-toolbar .validatearchive:hover {
+    -fx-background-color: -fx-shadow-highlight-color, -fx-outer-border, -fx-inner-border, derive(success_green, 20%);
+}
+
+.application-view  .application-toolbar .LocalDateTimeTextField {
+    -fx-padding: 5 0 0 0;
+    -fx-pref-width: 230;
+}
+
+.application-view  .application-toolbar .control-grp-left{
+    -fx-padding: 0 0 0 15;
+}
+.application-view  .application-toolbar .control-grp-right{
+    -fx-padding: 0 15 0 0;
+}
+
+.application-view  .application-toolbar .control-grp-right,
+.application-view  .application-toolbar .control-grp-left{
+    -fx-alignment: center-left;
+}
+
+.application-view  .application-toolbar .control-grp-left{
+    -fx-spacing: 0px;
+}
+.application-view  .application-toolbar .control-grp-right{
+    -fx-spacing: 5px;
+}
+
+
+/**
+==============================================================================
+navigator-view
+==============================================================================
+**/
+
+.navigator-view .filter-bar {
+    -fx-min-height: 30px;
+    -fx-padding: 0 0 0 10;
+}
+
+.navigator-view .filter-bar .controlsleft,
+.navigator-view .filter-bar .controlsright {
+    -fx-spacing: 0;
+    -fx-alignment: center-left;
+    -fx-padding: 0 10 0 0;
+}
+
+
+.navigator-view .filter-bar .tef-filter {
+    -fx-background-radius: 10;
+    -fx-pref-height: 22px;
+    -fx-min-height: 22px;
+    -fx-max-height: 22px;
+}
+
+.navigator-view .filter-bar .resettextfilter:hover {
+    -fx-background-color: derive(darkgray, 20%);
+}
+
+.navigator-view .filter-bar .resettextfilter {
+    -fx-translate-x: -18px;
+}
+
+.navigator-view .filter-bar Pane.navigatorsettings{
+    -fx-background-color: rgb(100,100,100);
+    -fx-pref-width: 16px;
+    -fx-max-width: 16px;
+    -fx-pref-height: 16px;
+    -fx-max-height: 16px;
+    -fx-scale-shape: true;
+    -fx-shape: "m449 402c-0.22065 0-0.44081 0.0113-0.65625 0.0312l-0.40625 2.0938c-0.33446 0.0733-0.66305 0.17589-0.96875 0.3125l-1.5312-1.4688c-0.38863 0.23011-0.72695 0.51408-1.0625 0.8125l0.90625 1.9062c-0.22242 0.24899-0.42425 0.5225-0.59375 0.8125l-2.0938-0.28125c-0.17772 0.40877-0.30872 0.83637-0.40625 1.2812l1.8438 1c-0.0171 0.16809-0.0312 0.3274-0.0312 0.5s0.0142 0.33191 0.0312 0.5l-1.8438 1c0.0975 0.44488 0.22853 0.87248 0.40625 1.2812l2.0938-0.28125c0.1695 0.29 0.37133 0.56351 0.59375 0.8125l-0.90625 1.9062c0.33555 0.29842 0.67387 0.58239 1.0625 0.8125l1.5312-1.4688c0.3057 0.13661 0.63429 0.23916 0.96875 0.3125l0.40625 2.0938c0.21544 0.02 0.4356 0.0312 0.65625 0.0312s0.44081-0.0113 0.65625-0.0312l0.40625-2.0938c0.33446-0.0733 0.66305-0.17589 0.96875-0.3125l1.5312 1.4688c0.38863-0.23011 0.72695-0.51408 1.0625-0.8125l-0.90625-1.9062c0.22242-0.24899 0.42425-0.5225 0.59375-0.8125l2.0938 0.28125c0.17772-0.40877 0.30872-0.83637 0.40625-1.2812l-1.8438-1c0.0171-0.16809 0.0312-0.3274 0.0312-0.5s-0.0142-0.33191-0.0312-0.5l1.8438-1c-0.0975-0.44488-0.22853-0.87248-0.40625-1.2812l-2.0938 0.28125c-0.1695-0.29-0.37133-0.56351-0.59375-0.8125l0.90625-1.9062c-0.33555-0.29842-0.67387-0.58239-1.0625-0.8125l-1.5312 1.4688c-0.3057-0.13661-0.63429-0.23916-0.96875-0.3125l-0.40625-2.0938c-0.21544-0.02-0.4356-0.0312-0.65625-0.0312zm0 4c1.6568 0 3 1.3432 3 3s-1.3432 3-3 3-3-1.3432-3-3 1.3432-3 3-3z"
+}
+
+.navigator-view .filter-bar Pane.navigatorsettings:hover{
+    -fx-background-color: derive(rgb(100,100,100), 20%);
+}
+
+.navigator-view .tree-cell {
+    -fx-indent: 21px;
+    -fx-graphic-text-gap: 5;
+}
+
+.navigator-view .tree-cell.invalid {
+    -fx-text-fill: red;
+}
+
+.navigator-view .tree-cell.valid {
+    -fx-text-fill: green;
+}
+
+.navigator-view .tree-view {
+    //-fx-min-width: 400px;
+    -fx-fixed-cell-size: 23;
+}
+
+.navigator-view .tree-view .tree-cell:even{
+    -fx-background-color: rgb(240,240,240);
+}
+
+.navigator-view .tree-view:focused .tree-cell:even:selected{
+    -fx-background-color: -fx-selection-bar;
+}
+
+.navigator-view .tree-view .tree-cell:even:selected{
+    -fx-background-color: -fx-selection-bar-non-focused;
+}
+
+.navigator-view .tree-view .image-view.archive {
+    -fx-image: url("icons/archive.png");
+}
+
+
+.navigator-view .tree-view .image-view.orderdir,
+.navigator-view .tree-view .image-view.pooldirectory{
+    -fx-image: url("icons/orderdir.png");
+}
+
+.navigator-view .tree-view .image-view.orderdoc{
+    -fx-image: url("icons/document.png");
+}
+
+/**
+==============================================================================
+detail-view
+==============================================================================
+**/
+
+.detail-view .scroll-pane .viewport{
+    -fx-background-color: transparent;
+}
+
+.detail-view .detail-pane{
+    -fx-padding: 10 0 0 10;
+}
+
+.detail-view .key-value-pair .value{
+    -fx-min-width: 600px;
+    -fx-max-width: 600px;
+    -fx-pref-width: 600px;
+}
+
+
+.archive-detail-pane .key-value-pair .text-area:readonly.value{
+    -fx-max-width: 100;
+}
+
+.detail-view .detail-pane .key-value-pair.metadata {
+    -fx-max-width: 600;
+}
+
+.detail-view .label.producturl {
+    -fx-translate-x: 20;
+    -fx-font-weight: bold;
+    -fx-font-size: 16;
+    -fx-padding: 5 0 10 0;
+}
+
+.ejs-order-pane {
+    -fx-padding: 0 0 0 60;
+}
+
+.generic-order-pane {
+    -fx-padding: 0 0 0 60;
+}
+
+.ejs-order-pane .section-separator{
+    -fx-max-width: 550;
+}
+
+.table-column.numbers, .table-column.euronumbers {
+    -fx-min-width: 130px;
+    -fx-pref-width: 130px;
+}
+
+.ejs-order-pane .table-view.bets{
+    -fx-max-width: 260px;
+    -fx-fixed-cell-size: 24;
+}
+
+.ejs-order-pane .key-value-pair.partpools{
+    -fx-pref-width: 260;
+    -fx-max-width: 260;
+}
+
+.ejs-order-pane .key-value-pair.partpools .label{
+    -fx-min-width: 160;
+    -fx-max-width: 160;
+}
+
+.ejs-order-pane .table-view.bets .column-header .label{
+    -fx-alignment: center-left;
+}
+
+
+/**
+==============================================================================
+application-view
+==============================================================================
+**/
+
+.application-view .main-area-content {
+    -fx-min-height: 20px;
+    -fx-min-width: 20px;
+}
+
+.application-view .order-doc-detail-view-holder{
+    -fx-min-width: 20px;
+}
+
+
+/**
+==============================================================================
+validation-view
+==============================================================================
+**/
+
+.validation-view{
+    -fx-min-width: 20px;
+}
+
+.validation-view > .content{
+    -fx-padding: 0 0 0 0;
+}
+
+.validation-view .progress-bar-group {
+    -fx-padding: 0 0 0 10;
+    -fx-spacing: 5;
+    -fx-alignment: center-left;
+}
+
+.validation-view .filter-bar{
+    -fx-spacing: 15;
+    -fx-padding: 0 0 0 15;
+    -fx-min-height: 25;
+    -fx-alignment: center-left;
+}
+
+.validation-view .list-view {
+    -fx-min-height: 50px;
+    -fx-min-width: 500px;
+}
+
+.validation-state-cell:even {
+    -fx-background-color: derive(rgb(240,240,240), -5%);
+}
+.validation-state-cell:odd {
+    -fx-background-color: derive(white, -5%);
+}
+
+.validation-state-cell:even:selected {
+    -fx-background-color: -fx-selection-bar;
+}
+
+.validation-state-cell .content.structural {
+    -fx-background-color: linear-gradient(derive(rgba(100,100,100,0.3), -20%), derive(rgba(100,100,100,0.3), -20%) );
+    -fx-font-weight: bold;
+    -fx-border-color: contour_top transparent contour_bottom transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+.validation-state-cell .content.checkresult .message-area {
+    -fx-spacing: 5;
+}
+
+.validation-view .list-view .content .h-spacer.rightbesideicon {
+    -fx-min-width: 10px;
+}
+
+.validation-view .list-view .content.valid .image-view {
+    -fx-image: url("icons/validation_ok.png");
+    -fx-min-height: 16px;
+    -fx-min-width: 16px;
+}
+
+.validation-view .list-view .content.invalid .image-view{
+    -fx-image: url("icons/validation_error.png");
+    -fx-min-height: 16px;
+    -fx-min-width: 16px;
+}
+
+.validation-view .list-view .content.invalid .text-area{
+    -fx-min-height: 16px;
+}
+
+
+/**
+==============================================================================
+settings-dialog-view
+==============================================================================
+**/
+
+.settings-dialog-view{
+    -fx-min-width: 930px;
+    -fx-maxn-width: 930px;
+    -fx-pref-width: 930px;
+}
+
+.settings-dialog-view > .content {
+    -fx-padding: 0 20 0 25;
+}
+
+/**Defines the position of the Ok and Cancel Buttons*/
+.settings-dialog-view .button-bar .container {
+    -fx-max-width: 755px;
+}
+
+.settings-dialog-view .cacertfile{
+    -fx-pref-width: 400px;
+}
+
+
+.settings-dialog-view TimestamperCertificateEditor{
+    -fx-max-height: 200;
+}
+
+.settings-dialog-view TimestamperCertificateEditor .list-view{
+    -fx-pref-width: 230;
+}
+
+
+.settings-dialog-view TimestamperCertificateEditor .right-beside-list{
+    -fx-padding: 0 5 0 5;
+}
+
+.settings-dialog-view TimestamperCertificateEditor .button-row{
+    -fx-padding: 10 0 0 0;
+    -fx-spacing: 10;
+}
+
+.settings-dialog-view TimestamperCertificateEditor .right-beside-list .button.moveup,
+.settings-dialog-view TimestamperCertificateEditor .right-beside-list .button.movedown{
+    -fx-padding: 3 3 3 3;
+    -fx-content-display: graphic-only;
+}
+
+.settings-dialog-view TimestamperCertificateEditor TextArea.description {
+    -fx-pref-height: 84;
+}
+
+.settings-dialog-view TimestamperCertificateEditor .timestamper-cert-value-edit-pane {
+    -fx-padding: 0 0 0 27;
+}
+
+.settings-dialog-view .timestamper-cert-value-edit-pane .text-area.value{
+    -fx-pref-width: 430px;
+    -fx-max-width: 430px;
+}
+
+.settings-dialog-view PublicKeyEditor {
+    -fx-max-height: 200px;
+}
+
+.settings-dialog-view PublicKeyEditor TextArea.description {
+    -fx-pref-height: 46;
+}
+
+
+.settings-dialog-view PublicKeyEditor .list-view{
+    -fx-min-width: 230;
+    -fx-max-width: 230;
+}
+
+.settings-dialog-view PublicKeyEditor .button-row{
+    -fx-spacing: 10;
+    -fx-padding: 10 0 0 0;
+}
+
+.settings-dialog-view .public-key-value-edit-pane{
+    -fx-padding: 0 0 0 58;
+}
+
+.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area{
+    -fx-max-width: 396;
+    -fx-background-color: orange;
+}
+
+.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area .content{
+    -fx-max-width: 390;
+    -fx-background-color: orange;
+}
+
+.settings-dialog-view .public-key-value-edit-pane .text-area.value{
+    -fx-pref-width: 430px;
+}
+
+
+.settings-dialog-view GridPane {
+    -fx-grid-lines-visible: false;
+    -fx-vgap: 10px;
+    -fx-hgap: 25px;
+}
+
+.settings-dialog-view GridPane.global .label,
+.settings-dialog-view GridPane.certificates .label{
+    -fx-pref-width: 200px;
+}
+
+.settings-dialog-view GridPane.global .text-area.value,
+.settings-dialog-view GridPane.certificates .text-area.value{
+    -fx-min-width: 590px;
+    -fx-max-width: 590px;
+    -fx-pref-width: 590px;
+}
+
+.settings-dialog-view GridPane .text-area.value .scroll-pane{
+    -fx-hbar-policy: never;
+    -fx-vbar-policy: never;
+    -fx-pref-width: 350px;
+}
+
+.settings-dialog-view GridPane .text-area.value{
+    -fx-hbar-policy: never;
+    -fx-vbar-policy: never;
+}
+
+
+
+/**
+==============================================================================
+Utils
+==============================================================================
+**/
+
+.view-header {
+    -fx-background-color: linear-gradient(viewheader_top, viewheader_bottom);
+    -fx-padding: 5 0 5 10;
+    -fx-border-color: derive(viewheader_top, 20%) transparent derive(viewheader_bottom, -20%) transparent;
+}
+.view-header .label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #444;
+}
+
+.key-value-pair{
+    -fx-padding: 2 0 0 2;
+    -fx-alignment: top-left;
+}
+
+.key-value-pair .key{
+    -fx-min-width: 200px;
+}
+
+.v-spacer{
+    -fx-min-height: 15px;
+}
+
+.h-spacer{
+    -fx-min-width: 15px;
+}
+
+.key-value-pair .label.value{
+    -fx-min-height: 25;
+}
+
+.validation-hint {
+    -fx-background-color: orange;
+    -fx-spacing: 10;
+    -fx-padding: 3 0 3 5;
+    -fx-background-radius: 3;
+}
+
+.validation-hint .text-area{
+    -fx-background-color: orange;
+}
+
+.validation-hint .text-area .content{
+    -fx-background-color: orange;
+}
+
+.validation-hint .image-view{
+    -fx-image: url("icons/warning.png");
+}
+
+.section-separator {
+    -fx-font-weight: bold;
+    -fx-font-size: 16;
+    -fx-padding: 5 0 10 0;
+}
+
+.section-separator.indent2 {
+    -fx-font-size: 14;
+}
+
+.section-separator.indent3 {
+    -fx-font-size: 14;
+}
+
+.section-separator .separator{
+    -fx-padding: 7 5 0 5;
+}
+
+.empty-panel-hint{
+    -fx-alignment: center;
+}
+
+.empty-panel-hint  .label{
+    -fx-font-weight: bolder;
+    -fx-text-alignment: center;
+    -fx-font-size: 15;
+    -fx-text-fill: rgba(0,0,0,0.4);
+}
+
+
+/**
+==============================================================================
+controls styling
+==============================================================================
+**/
+
+TextAreaWithAutoHeight,
+TextArea,
+TextField {
+    //-fx-background-color: canvas_top;
+    -fx-opacity:1;
+    -fx-effect: innershadow_edit;
+}
+
+TextAreaWithAutoHeight:readonly .content,
+TextArea:readonly .content,
+TextArea:disabled .content,
+TextField:readonly,
+TextField:disabled {
+    -fx-background-color: canvas_top;
+}
+
+ListView {
+    -fx-background-radius: 4px;
+	-fx-background-insets: 0;
+	-fx-effect: innershadow_edit;
+}
+
+/**
+==============================================================================
+SVG-Icons
+==============================================================================
+**/
+
+.svg-icon {
+    -fx-background-color: derive(rgb(100,100,100), 20%);
+}
+
+
+.svg-icon:hover {
+    -fx-background-color: derive(rgb(100,100,100), 10%);
+}
+
+.svg-icon:disabled {
+    -fx-background-color: derive(rgba(100,100,100,0.5), 60%);
+}
+
+.icon_smaller{
+    -fx-min-height: 12px;
+    -fx-max-height: 12px;
+    -fx-min-width: 12px;
+    -fx-max-width: 12px;
+}
+
+.icon_small{
+    -fx-min-height: 16px;
+    -fx-max-height: 16px;
+    -fx-min-width: 16px;
+    -fx-max-width: 16px;
+}
+
+.icon_large{
+    -fx-min-height: 20px;
+    -fx-max-height: 20px;
+    -fx-min-width: 20px;
+    -fx-max-width: 20px;
+}
+
+.icon_larger{
+    -fx-min-height: 24px;
+    -fx-max-height: 24px;
+    -fx-min-width: 24px;
+    -fx-max-width: 24px;
+}
+
+.svg_unvalidated {
+    -fx-scale-shape: true;
+    -fx-background-color: darkgray;
+    -fx-shape: "M8.002 1c-3.868 0-7.002 3.134-7.002 7s3.134 7 7.002 7c3.865 0 7-3.134 7-7s-3.135-7-7-7zm3 5c0 .551-.16 1.085-.477 1.586l-.158.22c-.07.093-.189.241-.361.393-.168.148-.35.299-.545.447l-.203.189-.141.129-.096.17-.021.235v.63h-2.001v-.704c.026-.396.078-.73.204-.999.125-.269.271-.498.439-.688l.225-.21-.01-.015.176-.14.137-.128c.186-.139.357-.277.516-.417l.148-.18c.098-.152.168-.323.168-.518 0-.552-.447-1-1-1s-1.002.448-1.002 1h-2c0-1.657 1.343-3 3.002-3 1.656 0 3 1.343 3 3zm-1.75 6.619c0 .344-.281.625-.625.625h-1.25c-.345 0-.626-.281-.626-.625v-1.238c0-.344.281-.625.626-.625h1.25c.344 0 .625.281.625.625v1.238z";
+}
+
+.svg_invalid {
+    -fx-background-color: red;
+    -fx-scale-shape: true;
+    -fx-shape: "M8.002 1c-3.868 0-7.002 3.134-7.002 7s3.134 7 7.002 7c3.865 0 7-3.134 7-7s-3.135-7-7-7zm4.025 9.284c.062.063.1.149.1.239 0 .091-.037.177-.1.24l-1.262 1.262c-.064.062-.15.1-.24.1s-.176-.036-.24-.1l-2.283-2.283-2.286 2.283c-.064.062-.15.1-.24.1s-.176-.036-.24-.1l-1.261-1.262c-.063-.062-.1-.148-.1-.24 0-.088.036-.176.1-.238l2.283-2.285-2.283-2.284c-.063-.064-.1-.15-.1-.24s.036-.176.1-.24l1.262-1.262c.063-.063.149-.1.24-.1.089 0 .176.036.24.1l2.285 2.284 2.283-2.284c.064-.063.15-.1.24-.1s.176.036.24.1l1.262 1.262c.062.063.1.149.1.24 0 .089-.037.176-.1.24l-2.283 2.284 2.283 2.284z";
+}
+
+.svg_valid {
+    -fx-background-color: green;
+    -fx-scale-shape: true;
+    -fx-shape: "M16.735,8.403c0,4.62-3.747,8.366-8.368,8.366  C3.746,16.769,0,13.023,0,8.403c0-4.622,3.745-8.366,8.367-8.366C12.988,0.037,16.735,3.781,16.735,8.403z M7.471,10.274L4.87,8.658  l-1.112,1.906l4.51,2.727l4.85-8.415l-1.905-1.111L7.471,10.274z";
+}
+
+.svg_reset {
+    -fx-background-color: darkgray;
+    -fx-scale-shape: true;
+    -fx-shape: "m48 519.03c-3.8533 0-6.9688 3.1155-6.9688 6.9688s3.1155 6.9688 6.9688 6.9688 6.9688-3.1155 6.9688-6.9688-3.1155-6.9688-6.9688-6.9688zm-3 3.97h1c0.01037-0.00012 0.02079-0.00046 0.03125 0 0.25495 0.0112 0.50987 0.12858 0.6875 0.3125l1.281 1.28 1.312-1.28c0.266-0.23 0.447-0.3 0.688-0.31h1v1c0 0.28647-0.03434 0.55065-0.25 0.75l-1.2812 1.2812 1.25 1.25c0.188 0.19 0.281 0.45 0.281 0.72v1h-1c-0.2653-0.00001-0.53059-0.0931-0.71875-0.28125l-1.281-1.28-1.281 1.28c-0.188 0.19-0.454 0.28-0.719 0.28h-1v-1c-0.000003-0.26529 0.09306-0.53058 0.28125-0.71875l1.2812-1.25-1.281-1.28c-0.21-0.19-0.303-0.47-0.281-0.75v-1z";
+}
+
+.svg_open-folder {
+    -fx-scale-shape: true;
+    -fx-shape: "M13 15l3-8h-13l-3 8zM2 6l-2 9v-13h4.5l2 2h6.5v2z";
+}
+
+.svg_arrow-up {
+    -fx-shape: "M512.331,256.01c0,3.853-0.743,7.727-2.274,11.414c-4.621,11.16-15.504,18.435-27.581,18.435H380.489v275.836  c0,16.488-13.368,29.855-29.855,29.855H162.052c-16.487,0-29.855-13.367-29.855-29.855V285.858H30.195  c-12.078,0-22.96-7.274-27.582-18.435c-4.636-11.151-2.07-24.006,6.473-32.526L235.227,8.746  C245.3-1.327,261.088-2.88,272.932,5.036c1.779,1.188,3.39,2.54,4.825,4.023c9.046,9.038,225.835,225.838,225.835,225.838  C509.299,240.598,512.331,248.24,512.331,256.01z M320.777,531.832V256.003c0-16.488,13.368-29.856,29.856-29.856h59.77  L256.343,72.08L102.276,226.146h59.77c16.487,0,29.855,13.368,29.855,29.856v275.836L320.777,531.832L320.777,531.832z";
+}
+
+.svg_arrow-down {
+    -fx-shape: "M-0.331,335.554c0-3.856,0.744-7.727,2.274-11.415c4.621-11.159,15.504-18.441,27.582-18.441h101.99V29.856  C131.515,13.368,144.883,0,161.37,0h188.591c16.488,0,29.856,13.368,29.856,29.856v275.841h101.996  c12.071,0,22.961,7.282,27.582,18.441c4.629,11.152,2.049,24.003-6.473,32.524L276.779,582.814  c-10.088,10.081-25.861,11.641-37.706,3.718c-1.778-1.195-3.39-2.537-4.825-4.023C225.201,573.47,8.409,356.663,8.409,356.663  C2.694,350.955-0.331,343.324-0.331,335.554z M191.227,59.712v275.842c0,16.488-13.368,29.856-29.856,29.856h-59.785  l154.077,154.084L409.725,365.41h-59.771c-16.488,0-29.856-13.368-29.856-29.856V59.712H191.227z";
+}

@@ -18,7 +18,6 @@ import domain.PoolResource.{Filenames, PRType}
 import domain.PoolValidator._
 import domain.products.GamingProduct._
 import domain.products.ParticipationPools.parseParticipationPoolId
-import org.apache.commons.codec.binary.{Base64 => Base64_AC}
 import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.x509.{ExtendedKeyUsage, Extension, KeyPurposeId}
 import org.bouncycastle.cert.X509CertificateHolder
@@ -132,8 +131,6 @@ object PoolValidator {
   )
   val RetailerOrderSignatureCheck = OrderCheck(description = "Retailer order signature must be valid",
     affectedResources = Set(PRType.Order, PRType.OrderSignature))
-  val OrderHashMatchesOrderDirectoryCheck = OrderCheck(description = "Computed order-hash must match the order directory name",
-    affectedResources = Set(PRType.OrderDirectory, PRType.Order))
   val PoolParticipationCheck = OrderCheck(description = "Order must participate in pool",
     affectedResources = Set(PRType.Order, PRType.MetaData))
   val CheckOrderResultOperatorSignature = OrderCheck(description = "Order document must match retailer order",
@@ -153,7 +150,6 @@ object PoolValidator {
   val allOrderRelatedChecks: Seq[OrderCheck] = Vector(
     AllOrderDocumentsMustExistCheck,
     RetailerOrderSignatureCheck,
-    OrderHashMatchesOrderDirectoryCheck,
     PoolParticipationCheck,
     CheckOrderResultOperatorSignature,
     OrderAcceptedCheck,
@@ -197,47 +193,31 @@ object PoolValidator {
 
 class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
                         implicit val ec: ExecutionContext,
-                        private var credentialsProvider: CredentialsProvider) extends PoolValidator {
+                        private var credentialsProvider: CredentialsProvider,
+                        algorithmMapper : SignatureAlgorithmMapper) extends PoolValidator {
 
 
   private val logger = Logger(LoggerFactory.getLogger(this.getClass))
-
-  //Base64.Encoder are safe for use by multiple concurrent threads.
-  private val base64UrlEncoder = Base64.getUrlEncoder
-  private val base64UrlEncoderWithoutPadding = Base64.getUrlEncoder.withoutPadding()
-  private val base64Encoder: Base64.Encoder = Base64.getEncoder
-  private val base64EncoderWithoutPadding: Base64.Encoder = Base64.getEncoder.withoutPadding()
 
   override def setCredentialsProvider(provider: CredentialsProvider): this.type = {
     this.credentialsProvider = provider
     this
   }
 
-  private def isBase64StringURLEncoded(base64String: String) = {
-    !base64String.contains('+') && !base64String.contains('/')
-  }
-
-  private def hasBASE64StringPadding(base64String: String) = {
-    base64String.endsWith("=")
-  }
-
   private[domain] def sha256UrlSafe(data: String): String = {
     val md = MessageDigest.getInstance("SHA-256")
     val digest = md.digest(data.getBytes(StandardCharsets.UTF_8))
-    new String(base64UrlEncoder.encode(digest))
+    new String(Base64.getUrlEncoder.encode(digest))
   }
 
-  private[domain] def sha256AsBase64(data: IndexedSeq[Byte], urlSafe: Boolean, withPadding: Boolean): String = {
+  /**
+    * @param data non-urlsafe encoded base64 data
+    * */
+  private[domain] def sha256AsBase64(data: IndexedSeq[Byte]): String = {
+    val urlSafe = false
     val md = MessageDigest.getInstance("SHA-256")
     val digest = md.digest(data.toArray)
-    val enc = {
-      if (urlSafe) {
-        if (withPadding) base64UrlEncoder else base64UrlEncoderWithoutPadding
-      } else {
-        if (withPadding) base64Encoder else base64EncoderWithoutPadding
-      }
-    }
-    new String(enc.encode(digest))
+    new String(Base64.getEncoder.encode(digest))
   }
 
   def checkPoolParticipation(order: Try[Order], metainfo: Try[PoolMetadata]): CheckResult = {
@@ -265,35 +245,6 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
   }
 
   /**
-    * Compute hash of order.json and see if matches the directory hash.
-    **/
-  private[domain] def checkOrderHashMatchesDirectoryName(orderData: Try[IndexedSeq[Byte]], directoryName: String): CheckResult = {
-    orderData match {
-      case Success(data) =>
-        val orderDirNameHasBASE64padding = hasBASE64StringPadding(directoryName)
-        val orderSha = sha256AsBase64(data, urlSafe = true, withPadding = orderDirNameHasBASE64padding)
-        if (directoryName == orderSha)
-          CheckOk(PoolValidator.OrderHashMatchesOrderDirectoryCheck)
-        else {
-          CheckFailure(PoolValidator.OrderHashMatchesOrderDirectoryCheck,
-            message = s"order.directoryName (${
-              directoryName
-            }) != orderSha (${
-              orderSha
-            })",
-            exception = Some(new UnexpectedValueException(msg = "orderSha != directoryName",
-              expected = Option(orderSha), actual = Option(directoryName)))
-          )
-        }
-      case Failure(t) =>
-        CheckFailure(PoolValidator.OrderHashMatchesOrderDirectoryCheck,
-          message = s"order data is missing or invalid: ${t.getMessage}",
-          exception = Some(t)
-        )
-    }
-  }
-
-  /**
     * Check signature in order.signature and check order using the retailer's public key
     *
     * @param orderSignature order signature (BASE64-encoded)
@@ -310,14 +261,20 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
       CheckFailure(RetailerOrderSignatureCheck, message = errors.mkString(", "))
     } else {
       try {
-        val signature_raw = Base64_AC.decodeBase64(orderSignature.get.signature.toArray) //=> Base64_AC ignores " "
-        val sig = Signature.getInstance("SHA256withRSA")
-        sig.initVerify(retailerPublicKey.get)
-        sig.update(order.get.rawData.toArray)
-        if (sig.verify(signature_raw))
-          CheckOk(RetailerOrderSignatureCheck)
-        else
-          CheckFailure(RetailerOrderSignatureCheck, message = "Verification of signature failed")
+        val signature_raw = Base64.getDecoder.decode(orderSignature.get.signature.toArray)
+
+        algorithmMapper.mapAlgorithmName(orderSignature.get.algorithm) match {
+          case Some(signatureAlg) =>
+            val sig = Signature.getInstance(signatureAlg)
+            sig.initVerify(retailerPublicKey.get)
+            sig.update(order.get.rawData.toArray)
+            if (sig.verify(signature_raw))
+              CheckOk(RetailerOrderSignatureCheck)
+            else
+              CheckFailure(RetailerOrderSignatureCheck, message = "Verification of signature failed")
+          case _ =>
+            CheckFailure(RetailerOrderSignatureCheck, message = s"unsupported signature algorithm: '${orderSignature.get.algorithm}'")
+        }
       } catch {
         case e: Exception => {
           CheckFailure(RetailerOrderSignatureCheck,
@@ -338,11 +295,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
       CheckFailure(RetailerOrderSignatureCheck, message = errors.mkString(", "))
     } else {
       val orderDigest_noPrefix = new String(result.get.orderDigest.toArray, StandardCharsets.UTF_8).replaceAll("^sha256:", "").replaceAll("^sha256=", "")
-      val orderDigest_hasPadding = hasBASE64StringPadding(orderDigest_noPrefix)
-      val orderDigest_isUrlEncoded = isBase64StringURLEncoded(orderDigest_noPrefix)
-
-      val orderDataHash = sha256AsBase64(order.get.rawData, urlSafe = orderDigest_isUrlEncoded, withPadding = orderDigest_hasPadding)
-
+      val orderDataHash = sha256AsBase64(order.get.rawData)
       if (orderDataHash != orderDigest_noPrefix) {
         CheckFailure(CheckOrderResultOperatorSignature, message = "signature(order) != result.orderDigest",
           exception = Some(new UnexpectedValueException(msg = "signature(order) != result.orderDigest",
@@ -365,27 +318,33 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     }
   }
 
-  /** Extract signature from order.result.signature
+  /**
     *
-    * @param signature signature bytes to be verified.
     * */
-  private[domain] def checkOperatorSignature(signature: Try[IndexedSeq[Byte]],
+  private[domain] def checkOperatorSignature(orderResultSignature : Try[OrderResultSignature],
                                              operatorPubKey: Try[PublicKey],
-                                             data: Try[IndexedSeq[Byte]]): CheckResult = {
-    val errors = signature.failed.toOption.map(t => s"Missing operator signature: ${t.getMessage}") ++
+                                             orderResult : Try[OrderResult]): CheckResult = {
+    val errors = orderResultSignature.failed.toOption.map(t => s"Missing operator signature: ${t.getMessage}") ++
       operatorPubKey.failed.toOption.map(t => s"Missing operator public key: ${t.getMessage}") ++
-      data.failed.toOption.map(t => s"Missing order data: ${t.getMessage}")
+       orderResult.failed.toOption.map(t => s"Missing order result data: ${t.getMessage}")
     if (errors.nonEmpty) {
       CheckFailure(OrderResultSignatureValidCheck, message = errors.mkString("\n"))
     } else {
       try {
-        val sig = Signature.getInstance("SHA256withRSA")
-        sig.initVerify(operatorPubKey.get)
-        sig.update(data.get.toArray)
-        if (sig.verify(signature.get.toArray))
-          CheckOk(OrderResultSignatureValidCheck)
-        else {
-          CheckFailure(OrderResultSignatureValidCheck, message = "Verification of signature failed")
+        val signature = Base64.getDecoder.decode(orderResultSignature.get.signature.toArray).toIndexedSeq
+        val orderResultData = orderResult.get.rawData
+        algorithmMapper.mapAlgorithmName(orderResultSignature.get.algorithm) match {
+          case Some(signatureAlg) =>
+            val sig = Signature.getInstance(signatureAlg)
+            sig.initVerify(operatorPubKey.get)
+            sig.update(orderResultData.toArray)
+            if (sig.verify(signature.toArray))
+              CheckOk(OrderResultSignatureValidCheck)
+            else {
+              CheckFailure(OrderResultSignatureValidCheck, message = "Verification of signature failed")
+            }
+          case _ =>
+            CheckFailure(OrderResultSignatureValidCheck, message = s"unsupported signature algorithm: '${orderResultSignature.get.algorithm}'")
         }
       } catch {
         case e: Exception => CheckFailure(OrderResultSignatureValidCheck,
@@ -460,7 +419,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
 
         //deserialize the tsaResponse (ASN.1 data)
         val tsResponse: TimeStampResponse = try {
-          val tsaResponse: Array[Byte] = Base64_AC.decodeBase64(timestampBase64.get.toArray)
+          val tsaResponse: Array[Byte] = Base64.getDecoder.decode(timestampBase64.get.toArray)
           new TimeStampResponse(tsaResponse.toArray)
         } catch {
           case t: Throwable => throw new Exception(s"Error parsing TimestampResponse data: ${t.getMessage}")
@@ -484,7 +443,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
           signature.map { sig =>
             val hashAlgo = tsResponse.getTimeStampToken.getTimeStampInfo.getHashAlgorithm
             val messageDigest = MessageDigest.getInstance(hashAlgo.getAlgorithm.getId)
-            val orderResultSignature_raw = Base64_AC.decodeBase64(sig.toArray)
+            val orderResultSignature_raw = Base64.getDecoder.decode(sig.toArray)
             val hashedData = messageDigest.digest(orderResultSignature_raw.toArray)
             val gen = new TimeStampRequestGenerator()
             gen.generate(hashAlgo.getAlgorithm(), hashedData, tsResponse.getTimeStampToken.getTimeStampInfo.getNonce)
@@ -658,11 +617,6 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     //execute the checks
 
     doCheck {
-      val orderDir_lastSegment = orderDirPath.getName(orderDirPath.getNameCount - 1)
-      checkOrderHashMatchesDirectoryName(orderData = order.map(_.rawData), directoryName = orderDir_lastSegment.toString)
-    }
-
-    doCheck {
       checkPoolParticipation(order, poolMetadata)
     }
 
@@ -694,15 +648,12 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     }
 
     doCheck {
-      val signature = orderResultSignature.map(s => Base64_AC.decodeBase64(s.signature.toArray).toIndexedSeq)
-      val orderResultData = orderResult.map(_.rawData)
-      checkOperatorSignature(signature = signature, operatorPubKey = operatorPublicKey, data = orderResultData)
+      checkOperatorSignature(orderResultSignature, operatorPubKey = operatorPublicKey, orderResult)
     }
 
     doChecks {
       //INFO the draw time is stated in the metadata, but it can be overridden in the UI.
       //     This override functionality is implemented in the drawtimeProvider.
-      //val drawtime: Try[Instant] = poolMetadata.flatMap(metaData => drawtimeProvider.getDrawtime(metaData.participationPoolId))
       checkOrderTimestamp(
         orderResultSignatureTimestamp.map(_.rawData),
         drawtime,
@@ -784,7 +735,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
         val messageDigest = MessageDigest.getInstance(pooldigest.algorithm)
           allOrderIds.foreach { d => messageDigest.update(d.getBytes(StandardCharsets.UTF_8)) }
           val computedPoolDigest = messageDigest.digest()
-          val metaDataPoolDigest_bytes = Base64_AC.decodeBase64(pooldigest.base64.toArray)
+          val metaDataPoolDigest_bytes = Base64.getDecoder.decode(pooldigest.base64.toArray)
           (util.Arrays.equals(metaDataPoolDigest_bytes, computedPoolDigest)) match {
             case true => CheckOk(PoolDigestCheck)
             case false => CheckFailure(PoolDigestCheck, "the computed digest for all orders does not match the pool digest from metadata.json")
@@ -797,7 +748,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     val timestampCheckResults: Seq[CheckResult] = checkPoolDigestTimestamp(
       timestampBase64 = timestampBase64,
       drawtime = drawTime,
-      signature = poolDigest.map(_.base64), //poolMetadata.flatMap(_.poolDigest.map(_.base64)),
+      signature = poolDigest.map(_.base64),
       caCertificates = credentialsProvider.getTimestamperCertificates
     )
 

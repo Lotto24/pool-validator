@@ -51,7 +51,7 @@ object Application extends JFXApp {
 
   val availableProcessors = Runtime.getRuntime().availableProcessors()
   val asyncTaskExecutor = Executors.newFixedThreadPool(availableProcessors + 1)
-  val validator = new PoolValidatorImpl(resourceProvider, executionContext, new CredentialsManagerImpl)
+  val validator = new PoolValidatorImpl(resourceProvider, executionContext, new CredentialsManagerImpl, DefaultSignatureAlgMapper)
 
   val jfxRunLaterExecutor = new Executor() {
     override def execute(command: Runnable): Unit = Platform.runLater(command)

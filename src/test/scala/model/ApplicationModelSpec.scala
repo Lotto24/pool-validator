@@ -910,7 +910,8 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
   )
   var validator: PoolValidator = new PoolValidatorImpl(poolResourceProvider,
     executionContext,
-    ApplicatonModelTestSetup.defaultCredentialsManager
+    ApplicatonModelTestSetup.defaultCredentialsManager,
+    DefaultSignatureAlgMapper
   )
 
   def model: ApplicationModel = _model

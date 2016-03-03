@@ -6,6 +6,7 @@ import java.security.PublicKey
 import java.security.cert.{CertificateFactory, X509Certificate}
 import java.time._
 import java.time.temporal.ChronoUnit
+import java.util.Base64
 
 import domain.CredentialsManagerImpl.PublicKeyMapKey
 import domain.PoolMetadata.PoolDigest
@@ -14,7 +15,6 @@ import domain.PoolValidator._
 import domain.products.ParticipationPools.{formatParticipationPoolId, parseParticipationPoolId}
 import domain.products.ejs.{EjsGamingProductOrder, EjsProductOrderFactory}
 import domain.products.gls.GlsProductOrderFactory
-import org.apache.commons.codec.binary.{Base64 => Base64_AC}
 import org.apache.commons.io.IOUtils
 import org.bouncycastle.tsp.TimeStampResponse
 import org.scalatest.{BeforeAndAfterAll, FeatureSpec, GivenWhenThen, Matchers}
@@ -108,36 +108,8 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     f
   }
 
-  feature("Validating of order directory names") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
-
-    val orderFile = getOrderFile(PRType.Order)
-    val validOrderData = Utils.getAsSeq(orderFile).get
-
-    scenario("Check valid order") {
-      withClue("validator.compareOrderWithHashInDirectory") {
-        v.checkOrderHashMatchesDirectoryName(Try(validOrderData), directoryName = orderFile.getParentFile.getName).isOk shouldEqual true
-      }
-    }
-
-    scenario("Check corrupted order") {
-      val orderData = corruptByte(origData = validOrderData, position = 8, corruptionFnct = _ => 9)
-      withClue("validator.compareOrderWithHashInDirectory") {
-        v.checkOrderHashMatchesDirectoryName(Try(orderData), directoryName = orderFile.getParentFile.getName).isOk shouldEqual false
-      }
-    }
-
-    scenario("Check OrderResult with corrupted docPath") {
-      val orderDirName_falsified = corruptChar(origData = orderFile.getParentFile.getName, position = 5, corruptionFnct = _ => 'c')
-      orderDirName_falsified should not be orderFile.getParentFile.getName
-      withClue("validator.checkOrderResult")(
-        v.checkOrderHashMatchesDirectoryName(Try(validOrderData), directoryName = orderDirName_falsified).isOk shouldEqual false
-      )
-    }
-  }
-
   feature("Retailer signature check") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
 
     val orderFile = getOrderFile(PRType.Order)
@@ -165,7 +137,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
 
   feature("checkPoolParticipation") {
 
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
     val orderFile = getOrderFile(PRType.Order)
     val metainfoFile = getOrderFile(PRType.MetaData)
@@ -213,7 +185,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
 
 
   feature("checkOrderIsAccepted") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
     val orderResultFile = getOrderFile(PRType.OrderResult)
 
@@ -246,7 +218,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
    * private[domain] def checkOrderResult(result: OrderResult): Boolean = {
   * */
   feature("Compare order.result->orderDigest to the actual order's directory name") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
     val validOrderResult = {
       val orderResultFile = getOrderFile(PRType.OrderResult)
@@ -284,32 +256,37 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
   }
 
   feature("checkOperatorSignature") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
     val orderResultSignatureFile = getOrderFile(PRType.OrderResultSignature)
     val orderResultSignature = defaultResourceProvider.getOrderResultSignature(orderResultSignatureFile.toPath.getParent).get
 
     val orderResultFile = getOrderFile(PRType.OrderResult)
-    val orderResultData = Utils.getAsSeq(orderResultFile).get
+    val orderResult = defaultResourceProvider.getOrderResult(orderResultFile.toPath.getParent)
 
     scenario("Check valid order") {
-      val signature = Base64_AC.decodeBase64(orderResultSignature.signature.toArray).toIndexedSeq
       withClue("validator.checkOperatorSignature") {
-        v.checkOperatorSignature(signature = Try(signature),
-          operatorPubKey = operatorPublicKey, data = Try(orderResultData)).isOk shouldEqual true
+        v.checkOperatorSignature(Try(orderResultSignature), //signature = Try(signature),
+          operatorPubKey = operatorPublicKey, orderResult = orderResult).isOk shouldEqual true
       }
     }
 
     scenario("Check order with invalid orderResultSignature.signature") {
-      val signature = corruptByte(origData = Base64_AC.decodeBase64(orderResultSignature.signature.toArray), position = 5, corruptionFnct = _ => 'Z').toIndexedSeq
+      val orderResultSignature_corrupted: OrderResultSignature = {
+        val signature_corrupted = corruptByte(origData = orderResultSignature.signature, position = 5, corruptionFnct = _ => 'Z')
+        orderResultSignature.copy(signature = signature_corrupted)
+      }
+
+      orderResultSignature_corrupted should not be orderResultSignature
+
       withClue("validator.checkOperatorSignature") {
-        v.checkOperatorSignature(signature = Try(signature),
-          operatorPubKey = operatorPublicKey, data = Try(orderResultData)).isOk shouldEqual false
+        v.checkOperatorSignature(Try(orderResultSignature_corrupted),
+          operatorPubKey = operatorPublicKey, orderResult = orderResult).isOk shouldEqual false
       }
     }
   }
 
   feature("validator.checkTimestamp_fromCaCert") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
     val orderResultSignatureFile = getOrderFile(PRType.OrderResultSignature)
     val validOrderResultSignature = defaultResourceProvider.getOrderResultSignature(orderResultSignatureFile.toPath.getParent)
@@ -334,7 +311,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
 
   feature("validator.checkTimestamp") {
 
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
     val orderResultSignatureFile = getOrderFile(PRType.OrderResultSignature)
     val validOrderResultSignature = defaultResourceProvider.getOrderResultSignature(orderResultSignatureFile.toPath.getParent)
@@ -365,7 +342,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
       validOrderResultSignature.get should not equal orderResultSignature_corrupted
 
       //TimeStampResponse from a byte array containing an ASN.1 encoding
-      val timestamp_raw = Base64_AC.decodeBase64(Utils.getAsSeq(orderResultSignatureTimestampFile).get.toArray)
+      val timestamp_raw = Base64.getDecoder.decode(Utils.getAsSeq(orderResultSignatureTimestampFile).get.toArray)
       val r = v.checkOrderTimestamp(validTimestamp.map(_.rawData), defaultPoolDrawTime, Try(orderResultSignature_corrupted), defaultTimestamperCerts)
       withClue(s"validator.checkTimestamp()..results: ${r.mkString("\n")}") {
         r.find(_.check == PoolValidator.OrderResultSignatureTimestampResultSignatureCheck).get.isOk shouldBe false
@@ -374,7 +351,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("checkTimestamp with wrong tsa-cert (timestamper-cert)") {
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val r = v.checkOrderTimestamp(validTimestamp.map(_.rawData), defaultPoolDrawTime, validOrderResultSignature,
         Seq(wrongTimestamperCert.get))
       withClue(s"validator.checkTimestamp $r") {
@@ -385,7 +362,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("checkTimestamp with wrong tsa-cert (retailer-cert)") {
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val r = v.checkOrderTimestamp(validTimestamp.map(_.rawData), defaultPoolDrawTime, validOrderResultSignature,
         Seq(wrongRetailerCert.get))
       withClue(s"validator.checkTimestamp ${r.mkString("\n")}") {
@@ -402,13 +379,13 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     scenario("check order with timestamp-time after draw time") {
 
       val timestampTime = {
-        val resp = new TimeStampResponse(Base64_AC.decodeBase64(validTimestamp.get.rawData.toArray))
+        val resp = new TimeStampResponse(Base64.getDecoder.decode(validTimestamp.get.rawData.toArray))
         resp.getTimeStampToken.getTimeStampInfo.getGenTime.toInstant
       }
 
       val drawTime_beforeTs = Try(timestampTime.minus(1, ChronoUnit.SECONDS))
 
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
       val r = v.checkOrderTimestamp(validTimestamp.map(_.rawData), drawTime_beforeTs, validOrderResultSignature,
         defaultTimestamperCerts)
@@ -490,7 +467,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
   }
 
   feature("validator.validateOrder(order)") {
-    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
     val orderFile = getOrderFile(PRType.Order)
     scenario("Check valid order") {
       val r = v.validateOrder(orderFile.toPath.getParent, defaultPoolDrawTime)
@@ -506,7 +483,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     //INFO ignored since the root-ca-cert is currently not used for validation
     ignore("Check order - wrong ca-cert (retailerCert expected as ca-cert)") {
       val credProvider_wrongCert = credentialsProvider.withCertificate(CredentialsProvider.RootCaCertificate, wrongRetailerCert)
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credProvider_wrongCert)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credProvider_wrongCert, DefaultSignatureAlgMapper)
       val r = v.validateOrder(orderFile.toPath.getParent, defaultPoolDrawTime)
       withClue(s"v.validateOrder result:\n${r.checkResults.mkString("\n")}") {
         r.checkResults.count(!_.isOk) shouldBe 0
@@ -521,7 +498,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     ignore("Check order - wrong ca-cert (timestamperCert expected as ca-cert)") {
       val credProvider_wrongCert = credentialsProvider.withCertificate(CredentialsProvider.RootCaCertificate, wrongTimestamperCert)
 
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credProvider_wrongCert)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credProvider_wrongCert, DefaultSignatureAlgMapper)
 
       val r = v.validateOrder(orderFile.toPath.getParent, defaultPoolDrawTime)
       withClue(s"v.validateOrder result:\n${r.checkResults.mkString("\n")}") {
@@ -538,7 +515,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
   feature("validator.validatePoolSeal()"){
 
     scenario("apply validation to valid pool"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val vResults = v.validatePoolSeal(
         defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get,
         defaultResourceProvider.getPoolMetadata(defaultPoolLocation),
@@ -551,7 +528,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with corrupted orderDirPaths (one orderDir omitted)"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val corruptedOrderDirPaths = defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get.tail
 
       val vResults = v.validatePoolSeal(
@@ -572,7 +549,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
 
     scenario("apply validation to pool with one corrupted orderDir name"){
 
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val orderDirs = defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get
 
       val orderDirs_corrupted: IndexedSeq[Path] = {
@@ -602,7 +579,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with unavailable poolMetadata"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val vResults = v.validatePoolSeal(
         defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get,
         poolMetadata = Failure(new Exception("poolMetadata not available!")),
@@ -620,7 +597,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with unavailable drawTime"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val vResults = v.validatePoolSeal(
         defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get,
         poolMetadata = defaultResourceProvider.getPoolMetadata(defaultPoolLocation),
@@ -638,12 +615,12 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with corrupted poolMetadata"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val corruptedPoolMetadata: Try[PoolMetadata] = {
         val poolMetadata_ok = defaultResourceProvider.getPoolMetadata(defaultPoolLocation).get
         val poolDigest_corrupted: Option[PoolDigest] = {
           val base64_ok = poolMetadata_ok.poolDigest.get.base64
-          val base64_corrupted = corruptByte(origData = base64_ok, position = 8, corruptionFnct = _ => 0)
+          val base64_corrupted = corruptByte(origData = base64_ok, position = 8, corruptionFnct = _ => 'C')
           poolMetadata_ok.poolDigest.map(_.copy(base64 = base64_corrupted))
         }
         poolDigest_corrupted should not be poolMetadata_ok.poolDigest
@@ -668,7 +645,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with unavailable timestamp-data"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val vResults = v.validatePoolSeal(
         defaultResourceProvider.getOrderDirPaths(defaultPoolLocation).get,
         poolMetadata = defaultResourceProvider.getPoolMetadata(defaultPoolLocation),
@@ -686,7 +663,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("apply validation to pool with corrupted timestamp-data"){
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
       val corruptedTimestampData: Try[IndexedSeq[Byte]] = {
         val timestamp_ok = defaultResourceProvider.getPoolDigestTimestamp(defaultPoolLocation).map(_.rawData).get
         val timestamp_corrupted = corruptByte(origData = timestamp_ok, position = 5, corruptionFnct = _ => 0)
@@ -725,7 +702,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
         }
       }
 
-      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(defaultResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
       val validationTask = v.validatePool(defaultPoolLocation, defaultPoolDrawTime, intermediateResultCb).run()
 
@@ -761,7 +738,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
         }
       }
 
-      val v = new PoolValidatorImpl(poolResourceProvider, executionContext, credentialsProvider)
+      val v = new PoolValidatorImpl(poolResourceProvider, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
 
       val validationTask = v.validatePool(poolLocation, defaultPoolDrawTime, intermediateResultCb).run()
 
@@ -811,7 +788,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
       }
     }
 
-    val v = new PoolValidatorImpl(prov, executionContext, credentialsProvider)
+    val v = new PoolValidatorImpl(prov, executionContext, credentialsProvider, DefaultSignatureAlgMapper)
     val validationTask = v.validatePool(defaultPoolLocation, defaultPoolDrawTime, defaultIntermediateResultHandler).run()
     Await.ready(validationTask, futureWaitTimeoutMs millis)
     val tmp = validationTask.value

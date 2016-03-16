@@ -37,20 +37,13 @@ Global values (custom colors etc)
 
 /**
 ==============================================================================
-Root
+application-view
 ==============================================================================
 **/
-.root {
+.application-view {
     -fx-pref-width: 1000;
     -fx-pref-height: 800;
 }
-
-
-/**
-==============================================================================
-application-toolbar
-==============================================================================
-**/
 
 .application-view  .application-toolbar {
     -fx-min-height: 35px;
@@ -155,26 +148,9 @@ navigator-view
     -fx-max-height: 22px;
 }
 
-.navigator-view .filter-bar .resettextfilter:hover {
-    -fx-background-color: derive(darkgray, 20%);
-}
 
 .navigator-view .filter-bar .resettextfilter {
-    -fx-translate-x: -18px;
-}
-
-.navigator-view .filter-bar Pane.navigatorsettings{
-    -fx-background-color: rgb(100,100,100);
-    -fx-pref-width: 16px;
-    -fx-max-width: 16px;
-    -fx-pref-height: 16px;
-    -fx-max-height: 16px;
-    -fx-scale-shape: true;
-    -fx-shape: "m449 402c-0.22065 0-0.44081 0.0113-0.65625 0.0312l-0.40625 2.0938c-0.33446 0.0733-0.66305 0.17589-0.96875 0.3125l-1.5312-1.4688c-0.38863 0.23011-0.72695 0.51408-1.0625 0.8125l0.90625 1.9062c-0.22242 0.24899-0.42425 0.5225-0.59375 0.8125l-2.0938-0.28125c-0.17772 0.40877-0.30872 0.83637-0.40625 1.2812l1.8438 1c-0.0171 0.16809-0.0312 0.3274-0.0312 0.5s0.0142 0.33191 0.0312 0.5l-1.8438 1c0.0975 0.44488 0.22853 0.87248 0.40625 1.2812l2.0938-0.28125c0.1695 0.29 0.37133 0.56351 0.59375 0.8125l-0.90625 1.9062c0.33555 0.29842 0.67387 0.58239 1.0625 0.8125l1.5312-1.4688c0.3057 0.13661 0.63429 0.23916 0.96875 0.3125l0.40625 2.0938c0.21544 0.02 0.4356 0.0312 0.65625 0.0312s0.44081-0.0113 0.65625-0.0312l0.40625-2.0938c0.33446-0.0733 0.66305-0.17589 0.96875-0.3125l1.5312 1.4688c0.38863-0.23011 0.72695-0.51408 1.0625-0.8125l-0.90625-1.9062c0.22242-0.24899 0.42425-0.5225 0.59375-0.8125l2.0938 0.28125c0.17772-0.40877 0.30872-0.83637 0.40625-1.2812l-1.8438-1c0.0171-0.16809 0.0312-0.3274 0.0312-0.5s-0.0142-0.33191-0.0312-0.5l1.8438-1c-0.0975-0.44488-0.22853-0.87248-0.40625-1.2812l-2.0938 0.28125c-0.1695-0.29-0.37133-0.56351-0.59375-0.8125l0.90625-1.9062c-0.33555-0.29842-0.67387-0.58239-1.0625-0.8125l-1.5312 1.4688c-0.3057-0.13661-0.63429-0.23916-0.96875-0.3125l-0.40625-2.0938c-0.21544-0.02-0.4356-0.0312-0.65625-0.0312zm0 4c1.6568 0 3 1.3432 3 3s-1.3432 3-3 3-3-1.3432-3-3 1.3432-3 3-3z"
-}
-
-.navigator-view .filter-bar Pane.navigatorsettings:hover{
-    -fx-background-color: derive(rgb(100,100,100), 20%);
+    -fx-translate-x: -18px; /** Moves the reset button into the filter-TextField. */
 }
 
 .navigator-view .tree-cell {
@@ -443,7 +419,8 @@ settings-dialog-view
     -fx-padding: 0 0 0 27;
 }
 
-.settings-dialog-view .timestamper-cert-value-edit-pane .text-area.value{
+.settings-dialog-view .timestamper-cert-value-edit-pane .text-input.value,
+.settings-dialog-view .timestamper-cert-value-edit-pane .validation-hint {
     -fx-pref-width: 430px;
     -fx-max-width: 430px;
 }
@@ -471,17 +448,8 @@ settings-dialog-view
     -fx-padding: 0 0 0 58;
 }
 
-.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area{
-    -fx-max-width: 396;
-    -fx-background-color: orange;
-}
-
-.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area .content{
-    -fx-max-width: 390;
-    -fx-background-color: orange;
-}
-
-.settings-dialog-view .public-key-value-edit-pane .text-area.value{
+.settings-dialog-view .public-key-value-edit-pane .text-input.value,
+.settings-dialog-view .public-key-value-edit-pane .validation-hint {
     -fx-pref-width: 430px;
 }
 
@@ -497,25 +465,18 @@ settings-dialog-view
     -fx-pref-width: 200px;
 }
 
-.settings-dialog-view GridPane.global .text-area.value,
-.settings-dialog-view GridPane.certificates .text-area.value{
-    -fx-min-width: 590px;
-    -fx-max-width: 590px;
-    -fx-pref-width: 590px;
+.settings-dialog-view GridPane.global .text-input.value,
+.settings-dialog-view GridPane.certificates .text-input.value,
+.settings-dialog-view GridPane.global .validation-hint,
+.settings-dialog-view GridPane.certificates .validation-hint{
+    -fx-min-width: 580px;
+    -fx-max-width: 580px;
 }
 
-.settings-dialog-view GridPane .text-area.value .scroll-pane{
-    -fx-hbar-policy: never;
-    -fx-vbar-policy: never;
-    -fx-pref-width: 350px;
-}
-
-.settings-dialog-view GridPane .text-area.value{
+.settings-dialog-view GridPane .validation-hint .text-area .scroll-pane{
     -fx-hbar-policy: never;
     -fx-vbar-policy: never;
 }
-
-
 
 /**
 ==============================================================================
@@ -555,6 +516,7 @@ Utils
 }
 
 .validation-hint {
+    -fx-alignment: center-left;
     -fx-background-color: orange;
     -fx-spacing: 10;
     -fx-padding: 3 0 3 5;
@@ -612,7 +574,6 @@ controls styling
 TextAreaWithAutoHeight,
 TextArea,
 TextField {
-    //-fx-background-color: canvas_top;
     -fx-opacity:1;
     -fx-effect: innershadow_edit;
 }
@@ -713,4 +674,8 @@ SVG-Icons
 
 .svg_arrow-down {
     -fx-shape: "M-0.331,335.554c0-3.856,0.744-7.727,2.274-11.415c4.621-11.159,15.504-18.441,27.582-18.441h101.99V29.856  C131.515,13.368,144.883,0,161.37,0h188.591c16.488,0,29.856,13.368,29.856,29.856v275.841h101.996  c12.071,0,22.961,7.282,27.582,18.441c4.629,11.152,2.049,24.003-6.473,32.524L276.779,582.814  c-10.088,10.081-25.861,11.641-37.706,3.718c-1.778-1.195-3.39-2.537-4.825-4.023C225.201,573.47,8.409,356.663,8.409,356.663  C2.694,350.955-0.331,343.324-0.331,335.554z M191.227,59.712v275.842c0,16.488-13.368,29.856-29.856,29.856h-59.785  l154.077,154.084L409.725,365.41h-59.771c-16.488,0-29.856-13.368-29.856-29.856V59.712H191.227z";
+}
+
+.svg_settings {
+    -fx-shape: "m449 402c-0.22065 0-0.44081 0.0113-0.65625 0.0312l-0.40625 2.0938c-0.33446 0.0733-0.66305 0.17589-0.96875 0.3125l-1.5312-1.4688c-0.38863 0.23011-0.72695 0.51408-1.0625 0.8125l0.90625 1.9062c-0.22242 0.24899-0.42425 0.5225-0.59375 0.8125l-2.0938-0.28125c-0.17772 0.40877-0.30872 0.83637-0.40625 1.2812l1.8438 1c-0.0171 0.16809-0.0312 0.3274-0.0312 0.5s0.0142 0.33191 0.0312 0.5l-1.8438 1c0.0975 0.44488 0.22853 0.87248 0.40625 1.2812l2.0938-0.28125c0.1695 0.29 0.37133 0.56351 0.59375 0.8125l-0.90625 1.9062c0.33555 0.29842 0.67387 0.58239 1.0625 0.8125l1.5312-1.4688c0.3057 0.13661 0.63429 0.23916 0.96875 0.3125l0.40625 2.0938c0.21544 0.02 0.4356 0.0312 0.65625 0.0312s0.44081-0.0113 0.65625-0.0312l0.40625-2.0938c0.33446-0.0733 0.66305-0.17589 0.96875-0.3125l1.5312 1.4688c0.38863-0.23011 0.72695-0.51408 1.0625-0.8125l-0.90625-1.9062c0.22242-0.24899 0.42425-0.5225 0.59375-0.8125l2.0938 0.28125c0.17772-0.40877 0.30872-0.83637 0.40625-1.2812l-1.8438-1c0.0171-0.16809 0.0312-0.3274 0.0312-0.5s-0.0142-0.33191-0.0312-0.5l1.8438-1c-0.0975-0.44488-0.22853-0.87248-0.40625-1.2812l-2.0938 0.28125c-0.1695-0.29-0.37133-0.56351-0.59375-0.8125l0.90625-1.9062c-0.33555-0.29842-0.67387-0.58239-1.0625-0.8125l-1.5312 1.4688c-0.3057-0.13661-0.63429-0.23916-0.96875-0.3125l-0.40625-2.0938c-0.21544-0.02-0.4356-0.0312-0.65625-0.0312zm0 4c1.6568 0 3 1.3432 3 3s-1.3432 3-3 3-3-1.3432-3-3 1.3432-3 3-3z"
 }

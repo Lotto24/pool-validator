@@ -158,9 +158,9 @@ class NavigatorView extends VBox {
 
       styleClass += "filter-bar"
       tefTextFilter.styleClass += "tef-filter"
-      btnTextFilterReset.getStyleClass.addAll("svg_reset","resettextfilter", CssClass.IconSize.smaller)
+      btnTextFilterReset.getStyleClass.addAll("svg_reset","resettextfilter", CssClass.IconSize.smaller, CssClass.svgIcon)
       btnTextFilterReset.setVisible(false)
-      icon_navigatorSettings.styleClass += "navigatorsettings"
+      icon_navigatorSettings.styleClass.addAll("svg_settings", "navigatorsettings", CssClass.IconSize.small, CssClass.svgIcon)
 
       controlGrpLeft.getStyleClass.add("controlsleft")
       controlGrpLeft.getChildren.addAll(cbShowValidOrders, new HSpacer(),

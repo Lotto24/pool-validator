@@ -138,7 +138,7 @@ object PoolValidator {
   val OrderAcceptedCheck = OrderCheck(description = "Order must be accepted",
     affectedResources = Set(PRType.OrderResult))
   val OrderResultSignatureValidCheck = OrderCheck(description = "Order document signature must be valid",
-    affectedResources = Set(PRType.OrderResult, PRType.OrderSignature))
+    affectedResources = Set(PRType.OrderResult, PRType.OrderResultSignature))
 
   val OrderResultSignatureTimestampAuthCheck = OrderCheck(description = "Order document signature timestamp must be authentic",
     affectedResources = Set(PRType.OrderResultSignatureTimestamp))

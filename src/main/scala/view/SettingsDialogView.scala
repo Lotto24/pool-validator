@@ -33,10 +33,10 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
   private val lblOperatorCert = new Label("Operator Certificate")
 
-  private val tefCaCertFile = new TextArea()
+  private val tefCaCertFile = new TextField()
   private val validationHint_caCertFile = new ValidationErrorHint
 
-  private val tefArchiveExtractionDir = new TextArea()
+  private val tefArchiveExtractionDir = new TextField()
   private val validationHint_tefArchiveExtractionDir = new ValidationErrorHint
 
   private val btnChooseFile_caCert = new Button("File")
@@ -53,22 +53,21 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
     Seq(tefCaCertFile,
       tefArchiveExtractionDir
-    ).foreach { tef =>
-      tef.getStyleClass.add("value")
-      tef.setPrefRowCount(1)
+    ).foreach { textInput =>
+      textInput.getStyleClass.add("value")
     }
 
     Seq(btnChooseFile_caCert,
       btnChooseFile_archiveExtractionDir
     ).foreach(_.getStyleClass.add("file"))
 
-    this.getDialogPane.getStyleClass.addAll(Color.viewcolors, "settings-dialog-view")
 
     setTitle("Settings")
     setHeaderText("Settings")
 
     // Set the button types.
     getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+    getDialogPane.getStyleClass.addAll(Color.viewcolors, "settings-dialog-view")
 
 
     val gridCerts = new GridPane()
@@ -202,32 +201,52 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
   def initEventHandlers(): Unit = {
 
+    // ca-cert-file
+
     btnChooseFile_caCert.onAction = handle {
       val currentFile = Option(tefCaCertFile.text.value).map(x => new File(x))
       validationHint_caCertFile.setError(None)
-      ChooseViaDialog.chooseFileViaDialog(
+      val file = ChooseViaDialog.chooseFileViaDialog(
         dialogParent = getDialogPane.getScene.getWindow,
         initialFile = currentFile, title = "Select CA Certificate file",
         extensionFilters = Seq(new ExtensionFilter("pem files", "*.pem"))
-      ).foreach { file =>
-        tefCaCertFile.setText(file.toString)
-        val errorOpt = Utils.isInvalidX509CertPemFile(file)
-        validationHint_caCertFile.setError(errorOpt.map(_.message))
-      }
-      updateOkEnabled()
+      )
+      tefCaCertFile.setText(file.map(_.toString).getOrElse(""))
+      onCaCertFileChanged(file)
     }
+
+    tefCaCertFile.onAction = handle {
+      onCaCertFileChanged(Utils.stringToOption(tefCaCertFile.getText).map(new File(_)))
+    }
+
+    // archiveExtractionDir
 
     btnChooseFile_archiveExtractionDir.onAction = handle {
       val currentFile = Option(tefArchiveExtractionDir.text.value).map(x => new File(x))
-      ChooseViaDialog.chooseDirectoryViaDialog(
+      val file = ChooseViaDialog.chooseDirectoryViaDialog(
         dialogParent = getDialogPane.getScene.getWindow,
-        initialDir = currentFile, title = "Select archive extraction dir").foreach { file =>
-        tefArchiveExtractionDir.setText(file.toString)
-        val errorOpt = Utils.isFileUnwriteable(file, isDirectoryHint = true).map(ErrorMsg(_))
-        validationHint_tefArchiveExtractionDir.setError(errorOpt.map(_.message))
-      }
-      updateOkEnabled()
+        initialDir = currentFile, title = "Select archive extraction dir"
+      )
+      tefArchiveExtractionDir.setText(file.map(_.toString).getOrElse(""))
+      onArchiveExtractionDirChanged(file)
     }
+
+    tefArchiveExtractionDir.onAction = handle {
+      onArchiveExtractionDirChanged(Utils.stringToOption(tefArchiveExtractionDir.getText).map(new File(_)))
+    }
+  }
+
+  private def onCaCertFileChanged(file: Option[File]): Unit = {
+    val errorMsg = file.flatMap(Utils.isInvalidX509CertPemFile).map(_.message)
+    validationHint_caCertFile.setError(errorMsg)
+    updateOkEnabled()
+  }
+
+
+  private def onArchiveExtractionDirChanged(file: Option[File]): Unit = {
+    val errorMsg = file.flatMap(f => Utils.isFileUnwriteable(f, isDirectoryHint = true))
+    validationHint_tefArchiveExtractionDir.setError(errorMsg)
+    updateOkEnabled()
   }
 
   private def updateOkEnabled(): Unit = {
@@ -253,8 +272,6 @@ class PublicKeyEditor extends HBox with UIUpdateHandler {
 
   private val valueEditPane = new PublicKeyValueEditPane
 
-  //private var currentPublicKeySpecs = Seq.empty[PublicKeySpec]
-
   private var onChangedHandler: (Seq[PublicKeyCfgItem]) => Unit = null
 
   private var updateFromValueEditPaneInProgressItem = Option.empty[PublicKeyCfgItem]
@@ -271,8 +288,6 @@ class PublicKeyEditor extends HBox with UIUpdateHandler {
 
     valueEditPane.setOnChanged(this.onPublicKeySpecEdited _)
     valueEditPane.setValue(None)
-
-
 
     val areaLeft = new VBox()
     areaLeft.getStyleClass += "area-left"
@@ -459,20 +474,28 @@ class PublicKeyEditor extends HBox with UIUpdateHandler {
       }
 
       btnChooseFile.onAction = handle {
-        ChooseViaDialog.chooseFileViaDialog(
+        val file = ChooseViaDialog.chooseFileViaDialog(
           dialogParent = getScene.getWindow,
           initialFile = stringToOption(tefFile.getText).map(new File(_)), title = "Select public key file",
           extensionFilters = Seq(new ExtensionFilter("pem files", "*.pem"))
-        ).foreach { file =>
-          tefFile.setText(file.toString)
-          val errorOpt = Utils.isInvalidPublicKeyPemFile(file)
-          validationHint_file.setError(errorOpt.map(_.message))
-        }
+        )
+        tefFile.setText(file.map(_.toString).getOrElse(""))
+        onFileChanged(file)
       }
+
+      tefFile.onAction = handle{
+        onFileChanged(Utils.stringToOption(tefFile.getText).map(new File(_)))
+      }
+
 
       taDescription.textProperty().onChange { (_, _, newValue) =>
         onInputChanged()
       }
+    }
+
+    private def onFileChanged(file: Option[File]): Unit = {
+      val errorMsg = file.flatMap(Utils.isInvalidPublicKeyPemFile).map(_.message)
+      validationHint_file.setError(errorMsg)
     }
 
     private def onInputChanged(): Unit = {
@@ -772,20 +795,27 @@ class TimestamperCertificateEditor extends HBox with UIUpdateHandler{
       }
 
       btnChooseFile.onAction = handle {
-        ChooseViaDialog.chooseFileViaDialog(
+        val file = ChooseViaDialog.chooseFileViaDialog(
           dialogParent = getScene.getWindow,
           initialFile = stringToOption(tefFile.getText).map(new File(_)), title = "Select certificate file",
           extensionFilters = Seq(new ExtensionFilter("pem files", "*.pem"))
-        ).foreach { file =>
-          tefFile.setText(file.toString)
-          val errorOpt = Utils.isInvalidX509CertPemFile(file)
-          validationHint_file.setError(errorOpt.map(_.message))
-        }
+        )
+        tefFile.setText(file.map(_.toString).getOrElse(""))
+        onFileChanged(file)
+      }
+
+      tefFile.onAction = handle{
+        onFileChanged(Utils.stringToOption(tefFile.getText).map(new File(_)))
       }
 
       taDescription.textProperty().onChange { (_, _, newValue) =>
         onInputChanged()
       }
+    }
+
+    private def onFileChanged(file: Option[File]): Unit = {
+      val errorMsg = file.flatMap(Utils.isInvalidX509CertPemFile).map(_.message)
+      validationHint_file.setError(errorMsg)
     }
 
     private def onInputChanged(): Unit = {

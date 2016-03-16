@@ -37,20 +37,13 @@ Global values (custom colors etc)
 
 /**
 ==============================================================================
-Root
+application-view
 ==============================================================================
 **/
-.root {
+.application-view {
     -fx-pref-width: 1000;
     -fx-pref-height: 800;
 }
-
-
-/**
-==============================================================================
-application-toolbar
-==============================================================================
-**/
 
 .application-view  .application-toolbar {
     -fx-min-height: 35px;
@@ -443,7 +436,8 @@ settings-dialog-view
     -fx-padding: 0 0 0 27;
 }
 
-.settings-dialog-view .timestamper-cert-value-edit-pane .text-area.value{
+.settings-dialog-view .timestamper-cert-value-edit-pane .text-input.value,
+.settings-dialog-view .timestamper-cert-value-edit-pane .validation-hint {
     -fx-pref-width: 430px;
     -fx-max-width: 430px;
 }
@@ -471,17 +465,8 @@ settings-dialog-view
     -fx-padding: 0 0 0 58;
 }
 
-.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area{
-    -fx-max-width: 396;
-    -fx-background-color: orange;
-}
-
-.settings-dialog-view .public-key-value-edit-pane .validation-hint .text-area .content{
-    -fx-max-width: 390;
-    -fx-background-color: orange;
-}
-
-.settings-dialog-view .public-key-value-edit-pane .text-area.value{
+.settings-dialog-view .public-key-value-edit-pane .text-input.value,
+.settings-dialog-view .public-key-value-edit-pane .validation-hint {
     -fx-pref-width: 430px;
 }
 
@@ -497,25 +482,18 @@ settings-dialog-view
     -fx-pref-width: 200px;
 }
 
-.settings-dialog-view GridPane.global .text-area.value,
-.settings-dialog-view GridPane.certificates .text-area.value{
-    -fx-min-width: 590px;
-    -fx-max-width: 590px;
-    -fx-pref-width: 590px;
+.settings-dialog-view GridPane.global .text-input.value,
+.settings-dialog-view GridPane.certificates .text-input.value,
+.settings-dialog-view GridPane.global .validation-hint,
+.settings-dialog-view GridPane.certificates .validation-hint{
+    -fx-min-width: 580px;
+    -fx-max-width: 580px;
 }
 
-.settings-dialog-view GridPane .text-area.value .scroll-pane{
-    -fx-hbar-policy: never;
-    -fx-vbar-policy: never;
-    -fx-pref-width: 350px;
-}
-
-.settings-dialog-view GridPane .text-area.value{
+.settings-dialog-view GridPane .validation-hint .text-area .scroll-pane{
     -fx-hbar-policy: never;
     -fx-vbar-policy: never;
 }
-
-
 
 /**
 ==============================================================================
@@ -555,6 +533,7 @@ Utils
 }
 
 .validation-hint {
+    -fx-alignment: center-left;
     -fx-background-color: orange;
     -fx-spacing: 10;
     -fx-padding: 3 0 3 5;

@@ -417,11 +417,9 @@ object DetailView {
       val time = tsResp.map(_.getTimeStampToken.getTimeStampInfo.getGenTime.toInstant)
       val timeStr = time.map(t => DateTimeFormatter.ISO_INSTANT.format(t)).getOrElse(errorTxt)
 
-
       val tsToken = tsResp.map(_.getTimeStampToken)
       val statusStr = tsResp.map(_.getStatusString).getOrElse(errorTxt)
       val tsaStr = tsToken.map(_.getTimeStampInfo.getTsa.toString).getOrElse(errorTxt)
-      val algo = tsToken.map(_.getTimeStampInfo.getHashAlgorithm.getAlgorithm.getId)
 
       kvl_status setValue statusStr
       kvl_acceptanceDate setValue timeStr

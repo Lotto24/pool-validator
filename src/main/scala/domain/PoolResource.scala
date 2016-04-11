@@ -10,6 +10,9 @@ import domain.PoolMetadata.PoolDigest
 import domain.products.GamingProduct.GamingProductId
 import domain.products.GamingProductOrder
 import domain.products.ParticipationPools.ParticipationPoolId
+import org.bouncycastle.tsp.TimeStampResponse
+
+import scala.util.Try
 
 /**
   * Base trait for classes representing pool archive resources (e.g. the archive, an order-directory, order-documents)
@@ -135,6 +138,7 @@ case class OrderResultSignature(keyId: String,
   * @param rawData base64 encoded ASN.1 timestamp response
   * */
 case class OrderResultSignatureTimestamp(value: String,
+                                         timeStampResponse: Try[TimeStampResponse],
                                          override val docPath: Path,
                                          override val rawData: IndexedSeq[Byte]) extends OrderDoc
 

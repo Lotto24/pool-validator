@@ -5,7 +5,7 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Paths, Path}
 import java.time.{LocalDate, ZonedDateTime}
-import java.time.format.DateTimeFormatter
+import java.util.Base64
 
 import _root_.util.Utils
 import domain.PoolMetadata.PoolDigest
@@ -14,8 +14,8 @@ import domain.products.{GamingProductOrder, ParticipationPools, ML24GamingProduc
 import GamingProduct._
 import domain.Order._
 import domain.PoolResource.Filenames
-import org.apache.commons.io.IOUtils
 import Utils.DirectoryFilter
+import org.bouncycastle.tsp.TimeStampResponse
 import play.api.libs.json._
 
 import scala.util.control.NonFatal
@@ -172,9 +172,15 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
   }
 
   override def getOrderResultSignatureTimestamp(orderDirPath: Path): Try[OrderResultSignatureTimestamp] = {
-    getInputStream(orderDirPath, Filenames.OrderResultSignatureTimestamp).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
-      OrderResultSignatureTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
-        docPath = orderDirPath.resolve(Filenames.OrderResultSignatureTimestamp), rawData = data)
+    getInputStream(orderDirPath, Filenames.OrderResultSignatureTimestamp).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { base64data =>
+      val data = Base64.getDecoder.decode(base64data.toArray)
+      val tsResponse = Try{new TimeStampResponse(data)}
+
+      OrderResultSignatureTimestamp(value = new String(base64data.toArray, StandardCharsets.UTF_8),
+        timeStampResponse = tsResponse,
+        docPath = orderDirPath.resolve(Filenames.OrderResultSignatureTimestamp),
+        rawData = base64data
+      )
     }
   }
 

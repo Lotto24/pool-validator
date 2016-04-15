@@ -392,8 +392,9 @@ object DetailView {
 
     override val title : String = "Order Result Signature Timestamp Details"
 
-    private val kvl_docPath = new KeyValuePair("Document path")
-    private val kvl_data = new KeyValuePair("Data", isMultiLineContent = true)
+    private val kvl_status = new KeyValuePair("Status")
+    private val kvl_acceptanceDate = new KeyValuePair("Acceptance date")
+    private val kvl_tsa = new KeyValuePair("TSA")
 
 
     locally {
@@ -401,15 +402,28 @@ object DetailView {
       val dataGroup = new VBox
       dataGroup.getChildren.addAll(
         new SectionSeparator("Order Result Signature Timestamp Details"),
-        kvl_docPath,
-        kvl_data
+        kvl_status,
+        kvl_acceptanceDate,
+        kvl_tsa
       )
       getChildren.addAll(dataGroup)
     }
 
     override def setData(data: OrderDocDetailData[OrderResultSignatureTimestamp]): Unit = {
-      kvl_docPath setValue data.doc.docPath.toString
-      kvl_data setValue new String(data.doc.rawData.toArray, StandardCharsets.UTF_8)
+
+      val errorTxt = "<not available>"
+
+      val tsResp = data.doc.timeStampResponse
+      val time = tsResp.map(_.getTimeStampToken.getTimeStampInfo.getGenTime.toInstant)
+      val timeStr = time.map(t => DateTimeFormatter.ISO_INSTANT.format(t)).getOrElse(errorTxt)
+
+      val tsToken = tsResp.map(_.getTimeStampToken)
+      val statusStr = tsResp.map(_.getStatusString).getOrElse(errorTxt)
+      val tsaStr = tsToken.map(_.getTimeStampInfo.getTsa.toString).getOrElse(errorTxt)
+
+      kvl_status setValue statusStr
+      kvl_acceptanceDate setValue timeStr
+      kvl_tsa setValue tsaStr
     }
   }
 

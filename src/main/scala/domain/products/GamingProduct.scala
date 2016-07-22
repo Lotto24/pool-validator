@@ -50,6 +50,34 @@ object ML24GamingProduct {
 
   }
 
-  val All = Vector(EJS, GLS)
+  object S6 extends ML24GamingProduct {
+
+    override val id: GamingProductId = "s6"
+    override val drawSeries: DrawSeries = DrawSeries.Super6
+
+  }
+
+  object S77 extends ML24GamingProduct {
+
+    override val id: GamingProductId = "s77"
+    override val drawSeries: DrawSeries = DrawSeries.Spiel77
+
+  }
+
+  object EMS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "ems"
+    override val drawSeries: DrawSeries = DrawSeries.Euromillions
+
+  }
+
+  object GLSS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "glss"
+    override val drawSeries: DrawSeries = DrawSeries.Glücksspirale
+
+  }
+
+  val All = Vector(EJS, GLS, S6, S77, EMS, GLSS)
 
 }

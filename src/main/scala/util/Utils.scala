@@ -3,6 +3,9 @@ package util
 import java.io._
 import java.security.PublicKey
 import java.security.cert.{CertificateFactory, X509Certificate}
+import java.time.DayOfWeek
+import java.time.format.TextStyle
+import java.util.Locale
 
 import org.apache.commons.io.IOUtils
 import org.apache.commons.io.filefilter.DirectoryFileFilter
@@ -15,6 +18,9 @@ import scala.util.{Failure, Success, Try}
 
 object Utils {
 
+
+  private val dayOfWeekMap = DayOfWeek.values().map{ day => (day.getDisplayName(TextStyle.SHORT, Locale.US).toUpperCase ,day)}.toMap
+  private val dayOfWeekMap_full = DayOfWeek.values().map{ day => (day.getDisplayName(TextStyle.FULL, Locale.US).toUpperCase ,day)}.toMap
 
   def getAsSeq(is: InputStream, closeStream: Boolean = true): Try[IndexedSeq[Byte]] = {
     Try {
@@ -105,6 +111,10 @@ object Utils {
   }
 
   def stringToOption(string:  String): Option[String] = if( (string == null) || string.isEmpty) None else Some(string)
+
+  def dayOfWeekFromString(value: String) : Option[DayOfWeek] = {
+    dayOfWeekMap.get(value).orElse(dayOfWeekMap_full.get(value))
+  }
 
   def mkFailure[T](msg: String): Failure[T] = new Failure[T](new Exception(msg))
 

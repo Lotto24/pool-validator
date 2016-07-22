@@ -905,9 +905,7 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
   private val credentialsManager: CredentialsManager = new CredentialsManagerImpl
 
   val runLaterExecutor = new RunLaterExecutor4Tests
-  val poolResourceProvider = new PoolResourceProviderImpl(
-    new CompositeProductOrderFactory(Seq(new EjsProductOrderFactory, new GlsProductOrderFactory))
-  )
+  val poolResourceProvider = new PoolResourceProviderImpl
   var validator: PoolValidator = new PoolValidatorImpl(poolResourceProvider,
     executionContext,
     ApplicatonModelTestSetup.defaultCredentialsManager,

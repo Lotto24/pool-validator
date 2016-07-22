@@ -13,8 +13,7 @@ import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.{Filenames, PRType}
 import domain.PoolValidator._
 import domain.products.ParticipationPools.{formatParticipationPoolId, parseParticipationPoolId}
-import domain.products.ejs.{EjsGamingProductOrder, EjsProductOrderFactory}
-import domain.products.gls.GlsProductOrderFactory
+import domain.products.ejs.EjsGamingProductOrder
 import org.apache.commons.io.IOUtils
 import org.bouncycastle.tsp.TimeStampResponse
 import org.scalatest.{BeforeAndAfterAll, FeatureSpec, GivenWhenThen, Matchers}
@@ -37,8 +36,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     override def onOrderValidated(result: OrderValidationResult, countValidatedOrders: Int): Unit = {}
   }
 
-  val defaultProductFactories = new CompositeProductOrderFactory(Seq(new EjsProductOrderFactory, new GlsProductOrderFactory))
-  val defaultResourceProvider = new PoolResourceProviderImpl(defaultProductFactories)
+  val defaultResourceProvider = new PoolResourceProviderImpl
 
   val defaultPoolDrawTime : Try[Instant] = defaultResourceProvider.getPoolMetadata(defaultPoolLocation).map(_.drawDate.toInstant)
 
@@ -196,9 +194,9 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
 
     scenario("Check non-accepted order") {
 
-      val resourceProvider = new PoolResourceProviderImpl(defaultProductFactories){
-        override protected def getInputStream(baseLocation: Path, resourceName: String): Try[InputStream] = Try{
-          resourceName match {
+      val resourceProvider = new PoolResourceProviderImpl{
+        override protected def getInputStream(filePath: Path): Try[InputStream] = Try{
+          filePath.getFileName.toString match {
             case Filenames.OrderResult =>
               val orderResultStr_noAccept = IOUtils.toString(orderResultFile).replace(OrderResult.Accepted, "rejected")
               orderResultStr_noAccept.contains(OrderResult.Accepted) shouldEqual false
@@ -723,7 +721,7 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     }
 
     scenario("pool location contains no order-directories"){
-      val poolResourceProvider = new PoolResourceProviderImpl(defaultProductFactories){
+      val poolResourceProvider = new PoolResourceProviderImpl{
         override def getOrderDirPaths(poolLocation: Path): Try[IndexedSeq[Path]] = {
           Try(Map.empty[Path, IndexedSeq[Path]].apply(poolLocation))
         }
@@ -779,12 +777,16 @@ class PoolValidatorSpec extends FeatureSpec with Matchers with BeforeAndAfterAll
     val orderDocFilename = PoolResource.docTypeToFileName(missingOrderDoc)
 
     val orderDocNotFoundException = new FileNotFoundException(s"${orderDocFilename} doc not found!")
-    val prov = new PoolResourceProviderImpl(defaultProductFactories){
-      override protected def getInputStream(baseLocation: Path, resourceName: String): Try[InputStream] = {
+    val prov = new PoolResourceProviderImpl{
+
+      /** Overridden to simulate a certain file missing */
+      override protected def getInputStream(filePath: Path): Try[InputStream] = {
+        val resourceName = filePath.getFileName.toString
+        val baseLocation = filePath.getParent
         if( (baseLocation == orderDirWithMissingDoc) && (resourceName == orderDocFilename) ){
           Failure(orderDocNotFoundException)
         }else
-          super.getInputStream(baseLocation, resourceName)
+          super.getInputStream(filePath)
       }
     }
 

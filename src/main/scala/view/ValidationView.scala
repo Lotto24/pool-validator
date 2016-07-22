@@ -127,7 +127,7 @@ class ValidationView extends VBox with UIUpdateHandler {
 
     val emptyPanelMsg = state match {
       case NoArchiveLoaded => "No\nPool Archive\nloaded"
-      case LoadingArchive => "Archive is currently\ngetting loaded"
+      case LoadingArchive => "Archive is currently\nbeing loaded"
       case ItemNotYetValidated => "Item has\nnot yet \nbeen validated"
       case ValidationInProgress => "Archive is currently \nbeing validated"
       case PreparingData => "Validation data\nis being prepared.."

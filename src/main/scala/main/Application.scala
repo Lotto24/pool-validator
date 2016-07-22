@@ -9,8 +9,6 @@ import javafx.application.Platform
 import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
 import domain._
-import domain.products.ejs.EjsProductOrderFactory
-import domain.products.gls.GlsProductOrderFactory
 import model.{ApplicationModel, ApplicationSettingsManagerPropertyImpl}
 import org.slf4j.LoggerFactory
 import util.Utils
@@ -21,9 +19,7 @@ import scala.util.{Failure, Success, Try}
 import scalafx.Includes._
 import scalafx.application.JFXApp
 import scalafx.application.JFXApp.PrimaryStage
-import scalafx.event.{ActionEvent => SfxActionEvent}
 import scalafx.scene.Scene
-import scalafx.scene.control.{Button => SfxButton}
 
 object Application extends JFXApp {
 
@@ -42,12 +38,8 @@ object Application extends JFXApp {
   implicit val executionContext = scala.concurrent.ExecutionContext.Implicits.global
 
   val logger = Logger(LoggerFactory.getLogger(getClass))
-  val archiveReader = new ArchiveReaderImpl//(executionContext)
-  val resourceProvider = new PoolResourceProviderImpl(
-    new CompositeProductOrderFactory(
-      Seq(new EjsProductOrderFactory, new GlsProductOrderFactory)
-    )
-  )
+  val archiveReader = new ArchiveReaderImpl
+  val resourceProvider = new PoolResourceProviderImpl
 
   val availableProcessors = Runtime.getRuntime().availableProcessors()
   val asyncTaskExecutor = Executors.newFixedThreadPool(availableProcessors + 1)

@@ -3,28 +3,33 @@ package domain
 import java.io._
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Paths, Path}
+import java.nio.file.Path
 import java.time.{LocalDate, ZonedDateTime}
 import java.util.Base64
 
 import _root_.util.Utils
-import domain.PoolMetadata.PoolDigest
-import domain.PoolResourceProvider.ProductOrderFactory
-import domain.products.{GamingProductOrder, ParticipationPools, ML24GamingProduct, GamingProduct}
-import GamingProduct._
 import domain.Order._
+import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.Filenames
-import Utils.DirectoryFilter
+import domain.PoolResourceProvider.ProductOrderFactory
+import domain.products.GamingProduct._
+import domain.products.ejs.EjsProductOrderFactory
+import domain.products.ems.EmsProductOrderFactory
+import domain.products.gls.GlsProductOrderFactory
+import domain.products.glss.GlsSProductOrderFactory
+import domain.products.s6.S6ProductOrderFactory
+import domain.products.s77.S77ProductOrderFactory
+import domain.products.{GamingProductOrder, ML24GamingProduct, ParticipationPools}
 import org.bouncycastle.tsp.TimeStampResponse
+import util.Utils.DirectoryFilter
 import play.api.libs.json._
 
-import scala.util.control.NonFatal
-import scala.util.{Success, Failure, Try}
+import scala.util.{Failure, Success, Try}
 
 
 /**
   * `PoolResourceProvider` provides order-documents and other resources related to a participation pool archive.
-  * */
+  **/
 trait PoolResourceProvider {
 
   def getPoolMetadata(poolDirPath: Path): Try[PoolMetadata]
@@ -43,13 +48,13 @@ trait PoolResourceProvider {
 
   /**
     * Delivers the `Path`s of the order directories for the order specified by `poolLocation`.
-    * */
+    **/
   def getOrderDirPaths(poolLocation: Path): Try[IndexedSeq[Path]]
 
   /**
     * Delivers the `Path`s of the order documents for the order specified by `orderDirPath`.
-    * */
-  def getOrderDocPaths(orderDirPath: Path) : Try[IndexedSeq[Path]]
+    **/
+  def getOrderDocPaths(orderDirPath: Path): Try[IndexedSeq[Path]]
 }
 
 object PoolResourceProvider {
@@ -67,21 +72,38 @@ object PoolResourceProvider {
 
   }
 
+  object ProductOrderFactory {
+
+    /**
+      * Delivers a `ProductOrderFactory` which is capable to create `ProductOrder`s for all known `GamingProductOrder`s.
+      **/
+    def allProductsOrderFactory: ProductOrderFactory = new CompositeProductOrderFactory(
+      Seq(
+        new EjsProductOrderFactory,
+        new EmsProductOrderFactory,
+        new GlsProductOrderFactory,
+        new GlsSProductOrderFactory,
+        new S6ProductOrderFactory,
+        new S77ProductOrderFactory
+      ))
+  }
+
 }
 
 
-class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends PoolResourceProvider {
+class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = ProductOrderFactory.allProductsOrderFactory) extends PoolResourceProvider {
 
-  protected def getInputStream(baseLocation: Path, resourceName: String): Try[InputStream] = {
-    val file = baseLocation.resolve(resourceName).toFile
-    Utils.isFileUnreadable(file) match {
+  protected def getInputStream(filePath: Path): Try[InputStream] = {
+    val resourceName = filePath.getFileName.toString
+    Utils.isFileUnreadable(filePath.toFile) match {
       case Some(error) => Failure(new Exception(error))
-      case _ => Success(new FileInputStream(file))
+      case _ => Success(new FileInputStream(filePath.toFile))
     }
   }
 
   override def getPoolMetadata(poolDirPath: Path): Try[PoolMetadata] = {
-    getInputStream(poolDirPath, Filenames.Metadata).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+    val filePath = poolDirPath.resolve(Filenames.Metadata)
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
       val node = Json.parse(data.toArray)
       val productUri = new URI((node \ "gaming-product").as[String])
       val poolIdStr = (node \ "participation-pool-id").as[String]
@@ -111,9 +133,10 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
     }
   }
 
-  override def getOrder(orderDirPath: Path): Try[Order] = {
-    val docPath = orderDirPath.resolve(Filenames.Order)
-    getInputStream(orderDirPath, Filenames.Order).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+  override def getOrder(orderDirPath: Path): Try[Order] = getOrderForFilePath(orderDirPath.resolve(Filenames.Order))
+
+  def getOrderForFilePath(filePath: Path): Try[Order] = {
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
       val node = Json.parse(data.toArray)
       val metaData = Metadata(
         retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String],
@@ -126,19 +149,20 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
       val orders = (node \ "gaming-product-orders").as[JsObject]
       val gamingProductOrders: Map[URI, GamingProductOrder] = orders.fields.map { field =>
         val productURI: URI = new URI(field._1)
-        val lotteryProductOrder = productOrderFactory.create(productURI, field._2.as[JsObject], docPath).get
+        val lotteryProductOrder = productOrderFactory.create(productURI, field._2.as[JsObject], filePath).get
         (productURI, lotteryProductOrder)
       }.toMap
 
-      assert(docPath.getNameCount >= 2, s"p.getNameCount[${docPath.getNameCount}] should be >= 2")
-      val directoryName = docPath.getName(docPath.getNameCount - 2).toString
+      assert(filePath.getNameCount >= 2, s"p.getNameCount[${filePath.getNameCount}] should be >= 2")
+      val directoryName = filePath.getName(filePath.getNameCount - 2).toString
       Order(metaData = metaData, gamingProductOrders = gamingProductOrders,
-        docPath = docPath, directoryName = directoryName, rawData = data)
+        docPath = filePath, directoryName = directoryName, rawData = data)
     }
   }
 
   override def getOrderResult(orderDirPath: Path): Try[OrderResult] = {
-    getInputStream(orderDirPath, Filenames.OrderResult).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+    val filePath = orderDirPath.resolve(Filenames.OrderResult)
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
       val node = Json.parse(data.toArray)
       val creationTime: ZonedDateTime = {
         (node \ "creation-time").toOption.map(_.as[String]).fold(Option.empty[ZonedDateTime]) { s =>
@@ -159,7 +183,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
   }
 
   override def getOrderResultSignature(orderDirPath: Path): Try[OrderResultSignature] = {
-    getInputStream(orderDirPath, Filenames.OrderResultSignature).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+    val filePath = orderDirPath.resolve(Filenames.OrderResultSignature)
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
       val node = Json.parse(data.toArray)
       OrderResultSignature(
         keyId = (node \ "keyId").as[String],
@@ -172,7 +197,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
   }
 
   override def getOrderResultSignatureTimestamp(orderDirPath: Path): Try[OrderResultSignatureTimestamp] = {
-    getInputStream(orderDirPath, Filenames.OrderResultSignatureTimestamp).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { base64data =>
+    val filePath = orderDirPath.resolve(Filenames.OrderResultSignatureTimestamp)
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { base64data =>
       val data = Base64.getDecoder.decode(base64data.toArray)
       val tsResponse = Try{new TimeStampResponse(data)}
 
@@ -185,7 +211,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
   }
 
   override def getOrderSignature(orderDirPath: Path): Try[OrderSignature] = {
-    getInputStream(orderDirPath, Filenames.OrderSignature).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+    val filePath = orderDirPath.resolve(Filenames.OrderSignature)
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
       val node = Json.parse(data.toArray)
       OrderSignature(keyId = (node \ "keyId").as[String],
         algorithm = (node \ "algorithm").as[String],
@@ -197,8 +224,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory) extends
   }
 
   override def getPoolDigestTimestamp(poolDirPath: Path): Try[PoolDigestTimestamp] = {
-
-      getInputStream(poolDirPath, Filenames.PoolDigestTimestamp).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+    val filePath = poolDirPath.resolve(Filenames.PoolDigestTimestamp)
+      getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
         PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
           docPath = poolDirPath.resolve(Filenames.PoolDigestTimestamp), rawData = data)
       }

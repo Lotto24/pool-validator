@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "retailer": {
+      "href": "http://zoe.mylotto24.co.uk/entities/tipp24.com"
+    },
+    "retail-customer": "597de3bc-5a00-479f-8fbe-f0652fdd3339",
+    "retailer-order-reference": "f39a17f3-a9d7-4712-84ce-589a9380b854",
+    "creation-date": "2016-07-21T11:45:38.728Z"
+  },
+  "gaming-product-orders": {
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ejs": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "euronumbers": [1, 8]
+      }, {
+        "numbers": [2, 4, 6, 29, 32],
+        "euronumbers": [4, 5]
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-22",
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/gls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5, 6],
+        "super-number": 7
+      }, {
+        "numbers": [1, 2, 4, 6, 29, 32, 49],
+        "super-number": 0,
+        "system": "full"
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-23",
+        "draw-days": ["SATURDAY"],
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/s6": {
+      "bets": [{
+        "numbers": [0, 8, 1, 8, 3, 6]
+      }, {
+        "numbers": [3, 6, 2, 8, 1, 9]
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-23",
+        "draw-days": ["SATURDAY"],
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/s77": {
+      "bets": [{
+        "numbers": [7, 0, 8, 1, 8, 3, 6]
+      }, {
+        "numbers": [3, 6, 1, 8, 1, 9, 7]
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-23",
+        "draw-days": ["SATURDAY"],
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ems": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "starnumbers": [1, 11]
+      }, {
+        "numbers": [2, 4, 6, 29, 32],
+        "starnumbers": [2, 10]
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-22",
+        "draw-days": ["FRIDAY"],
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/glss": {
+      "bets": [{
+        "numbers": [8, 1, 9, 2, 9, 4, 7]
+      }, {
+        "numbers": [2, 5, 0, 7, 0, 8, 6]
+      }],
+      "participation-pools": {
+        "first-date": "2016-07-23",
+        "draw-count": 1
+      }
+    }
+  }
+}

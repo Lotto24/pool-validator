@@ -9,7 +9,7 @@ import java.time.{LocalDate, LocalTime, ZoneOffset, ZonedDateTime}
 
 import domain.PoolResource.Filenames
 import domain.products.ML24GamingProduct
-import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools, EjsProductOrderFactory}
+import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools}
 import org.scalatest.{FeatureSpec, Matchers}
 import play.api.libs.json.Json
 import util.Utils
@@ -26,7 +26,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
     val metadataFile = new File(workingDir, "src/test/resources/validorders/metadata.json")
     scenario("obtain metadata from well-named pool directory ('-'-separated)") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       provider.getPoolMetadata(poolDirPath=metadataFile.toPath.getParent) match {
         case Success(poolInfo: PoolMetadata) =>
           poolInfo.drawDate shouldBe ZonedDateTime.of(LocalDate.of(2015, 12, 25), LocalTime.of(18, 0, 0), ZoneOffset.UTC)
@@ -38,8 +38,10 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
     }
 
     scenario("obtain metadata from mal-named pool directory (invalid draw-date)") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory){
-        override protected def getInputStream(baseDir: Path, resourceName: String) : Try[InputStream] = Try{
+      val provider = new PoolResourceProviderImpl{
+
+        override protected def getInputStream(filePath: Path) : Try[InputStream] = Try{
+          val resourceName = filePath.getFileName.toString
           resourceName match {
             case Filenames.Metadata =>
               val metaDataBytes = Json.obj(
@@ -68,7 +70,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       info(s"workingDir: $workingDir")
 
       val orderFile = new File(workingDir, "src/test/resources/validorders/07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw/order")
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       val o: Order = provider.getOrder(orderFile.toPath.getParent).get
 
       withClue("docPath")(o.docPath shouldEqual orderFile.toPath)
@@ -95,11 +97,30 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
       withClue("metaData.retailerOrderReference")(o.gamingProductOrders(EjsGamingProductOrder.productURI) shouldEqual expectedOrder)
     }
+
+    scenario("parsing order with all products"){
+
+      val orderFile = new File(workingDir, "src/test/resources/orderdocs/order/orderWithAllProducts.json")
+      val provider = new PoolResourceProviderImpl
+      val o: Order = provider.getOrderForFilePath(orderFile.toPath).get
+
+      withClue("docPath")(o.docPath shouldEqual orderFile.toPath)
+
+      withClue("metaData.creationDate")(o.metaData.creationDate.toString shouldEqual "2016-07-21T11:45:38.728Z")
+      withClue("metaData.retailCustomer")(o.metaData.retailCustomer shouldEqual "597de3bc-5a00-479f-8fbe-f0652fdd3339")
+      withClue("metaData.retailerHref")(o.metaData.retailerHref shouldEqual "http://zoe.mylotto24.co.uk/entities/tipp24.com")
+      withClue("metaData.retailerOrderReference")(o.metaData.retailerOrderReference shouldEqual "f39a17f3-a9d7-4712-84ce-589a9380b854")
+      withClue("metaData.retailerOrderReference")(o.gamingProductOrders.size shouldEqual ML24GamingProduct.All.size)
+
+      //TODO check productOrders & bets
+
+    }
+
   }
 
   feature("Parsing of an order.result") {
     scenario("Parsing of a valid order.result should succeed") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       val file = new File(workingDir, "src/test/resources/validorders/07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw/order.result")
       val o: OrderResult = provider.getOrderResult(file.toPath.getParent).get
       withClue("docPath")(o.docPath shouldEqual file.toPath)
@@ -114,7 +135,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
   feature("Parsing of an order.result.signature") {
     scenario("Parsing of a valid order.result.signature should succeed") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       val file = new File(workingDir, "src/test/resources/validorders/07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw/order.result.signature")
 
       val o: OrderResultSignature = provider.getOrderResultSignature(file.toPath.getParent).get
@@ -131,7 +152,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
   feature("Parsing of an order.result.signature.timestamp") {
     scenario("Parsing of a order.result.signature.timestamp should succeed") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       val file = new File(workingDir, "src/test/resources/validorders/07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw/order.result.signature.timestamp")
       val o: OrderResultSignatureTimestamp = provider.getOrderResultSignatureTimestamp(file.toPath.getParent).get
 
@@ -143,7 +164,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
   feature("Parsing of an order.signature") {
     scenario("Parsing of a order.signature should succeed") {
-      val provider = new PoolResourceProviderImpl(new EjsProductOrderFactory)
+      val provider = new PoolResourceProviderImpl
       val file = new File(workingDir, "src/test/resources/validorders/07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw/order.signature")
 
       val o: OrderSignature = provider.getOrderSignature(file.toPath.getParent).get

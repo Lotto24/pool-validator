@@ -29,4 +29,4 @@ The Java heap size can be adjusted via variable CFG_OPTS in the start scripts, e
 ```
 set CFG_OPTS=-Xmx2G
 ```
-A heap size of 2 GB (2G) is recommended.
+A heap size of 2 GB (2G) or more is recommended!

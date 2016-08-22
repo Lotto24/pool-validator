@@ -2,10 +2,11 @@ package domain
 
 import java.net.URI
 import java.nio.file.Path
-import java.time.ZonedDateTime
+import java.time.{LocalDate, ZonedDateTime}
 import java.time.format.DateTimeFormatter
 
 import domain.Order._
+import domain.OrderMetadata.OrderHedgingData
 import domain.PoolMetadata.PoolDigest
 import domain.products.GamingProduct.GamingProductId
 import domain.products.GamingProductOrder
@@ -31,7 +32,7 @@ object PoolResource {
   /** Enumeration for `PoolResource`-types. */
   object PRType extends Enumeration {
     val PoolDirectory, MetaData, OrderDirectory, Order, OrderResult, OrderResultSignature,
-    OrderResultSignatureTimestamp, OrderSignature, PoolDigestTimestamp = Value
+    OrderResultSignatureTimestamp, OrderSignature, OrderMetadata, PoolDigestTimestamp = Value
   }
 
   object Filenames {
@@ -41,6 +42,7 @@ object PoolResource {
     val OrderResultSignature: String = "order.result.signature"
     val OrderResultSignatureTimestamp: String = "order.result.signature.timestamp"
     val OrderSignature: String = "order.signature"
+    val OrderMetadata: String = "order.metadata"
     val PoolDigestTimestamp: String = "participation-pool-digest.timestamp"
   }
 
@@ -57,6 +59,7 @@ object PoolResource {
       case PRType.OrderResultSignature => Filenames.OrderResultSignature
       case PRType.OrderResultSignatureTimestamp => Filenames.OrderResultSignatureTimestamp
       case PRType.OrderSignature => Filenames.OrderSignature
+      case PRType.OrderMetadata => Filenames.OrderMetadata
       case PRType.PoolDigestTimestamp => Filenames.PoolDigestTimestamp
       case x => sys.error(s"unexpected arg: $x")
     }
@@ -151,6 +154,23 @@ case class OrderSignature(keyId: String,
                           signature: IndexedSeq[Byte],
                           override val docPath: Path,
                           override val rawData: IndexedSeq[Byte]) extends OrderDoc
+
+/**
+  * `OrderMetadata` is a container for data that is not required for the chain of proof, but nevertheless may be
+  * of interest (e.g. hedging data).
+  * */
+case class OrderMetadata(hedgingData: OrderHedgingData,
+                         override val docPath: Path,
+                         override val rawData: IndexedSeq[Byte]) extends OrderDoc
+
+object OrderMetadata{
+
+  case class OrderHedgingData(hedgingDataPerProduct: Map[GamingProductId, Seq[DrawHedgingData]])
+
+  /**Hedging data for single draw / participation-pool*/
+  case class DrawHedgingData(poolId: ParticipationPoolId, drawDate: LocalDate, hedgingChannel: Option[String])
+
+}
 
 /**
   * @param rawData base64 encoded ASN.1 timestamp response

@@ -366,12 +366,19 @@ class ApplicationModel(archiveReader : ArchiveReader,
           if (disposed)
             return IndexedSeq.empty
 
-          val productInfos = createProductInfosFor(orderDirPath)
+          //the order-file must be read to add some information to the tree-items (e.g. bets-per-product, retailerOrderReference for searching)
+          val order = resourceProvider.getOrder(orderDirPath)
+          if(order.isFailure)
+            logger.error(s"failed to load order in $orderDirPath", order.failed.get)
 
-          val navItem = OrderDirNavigatorItem(orderDirPath, orderDirPath.getFileName.toString,
+          val productInfos = order.toOption.map(createProductInfosFor)
+
+          val navItem = OrderDirNavigatorItem(orderDirPath,
+            displayName=orderDirPath.getFileName.toString,
+            retailerOrderReference = order.map(_.metaData.retailerOrderReference).getOrElse(""),
             validationState = ValidationState.NotValidated,
             hasInvalidOrderDocs = false,
-            productInfos = productInfos.toOption.orNull)
+            productInfos = productInfos.orNull)
           val orderDirItem = new TreeItemExt[NavigatorItem](navItem)
 
           resourceProvider.getOrderDocPaths(orderDirPath).toOption.foreach{ orderDocFiles =>
@@ -389,14 +396,12 @@ class ApplicationModel(archiveReader : ArchiveReader,
     }.toOption.getOrElse(IndexedSeq.empty)
   }
 
-  private def createProductInfosFor(orderDirPath: Path): Try[ProductInfos] = {
-    resourceProvider.getOrder(orderDirPath).map { order =>
-      val betsCountPerProduct = order.gamingProductOrders.values.map { productOrder =>
-        val productId = GamingProduct.gamingProductIdFromURI(productOrder.productURI)
-        (productId, productOrder.bets.size)
-      }.toMap
-      ProductInfos(betCountPerProduct = betsCountPerProduct)
-    }
+  private def createProductInfosFor(order: Order): ProductInfos = {
+    val betsCountPerProduct = order.gamingProductOrders.values.map { productOrder =>
+      val productId = GamingProduct.gamingProductIdFromURI(productOrder.productURI)
+      (productId, productOrder.bets.size)
+    }.toMap
+    ProductInfos(betCountPerProduct = betsCountPerProduct)
   }
 
   private def resetModelState(): Future[Unit] = {
@@ -617,15 +622,58 @@ class ApplicationModel(archiveReader : ArchiveReader,
           productInfos = sel.productInfos))
 
       case Some(sel: OrderDocNavigatorItem) =>
-        val doc: Try[PoolResource] = sel.path.toFile.getName match {
-          case Filenames.Order => resourceProvider.getOrder(sel.path.getParent)
-          case Filenames.OrderResult => resourceProvider.getOrderResult(sel.path.getParent)
-          case Filenames.OrderResultSignature => resourceProvider.getOrderResultSignature(sel.path.getParent)
-          case Filenames.OrderResultSignatureTimestamp => resourceProvider.getOrderResultSignatureTimestamp(sel.path.getParent)
-          case Filenames.OrderSignature => resourceProvider.getOrderSignature(sel.path.getParent)
-          case f => Failure(new IllegalStateException(s"unexpected filename: $f"))
+        
+        val detailDataOrError: Either[DetailData, ErrorMsg] = sel.path.toFile.getName match {
+          case Filenames.Order =>
+            resourceProvider.getOrder(sel.path.getParent) match {
+              case Success(data) => Left(OrderDocDetailData(data))
+              case Failure(t) => Right(ErrorMsg("Failed to load order detail data", Some(t.getMessage)))
+            }
+          case Filenames.OrderResult =>
+            resourceProvider.getOrderResult(sel.path.getParent) match {
+              case Success(data) => Left(OrderDocDetailData(data))
+              case Failure(t) => Right(ErrorMsg("Failed to load order.result detail data", Some(t.getMessage)))
+            }
+          case Filenames.OrderResultSignature =>
+            resourceProvider.getOrderResultSignature(sel.path.getParent) match {
+              case Success(data) => Left(OrderDocDetailData(data))
+              case Failure(t) => Right(ErrorMsg("Failed to load order.result.signature detail data", Some(t.getMessage)))
+            }
+          case Filenames.OrderResultSignatureTimestamp =>
+            resourceProvider.getOrderResultSignatureTimestamp(sel.path.getParent) match {
+              case Success(data) => Left(OrderDocDetailData(data))
+              case Failure(t) => Right(ErrorMsg("Failed to load order.result.signature.timestamp detail data", Some(t.getMessage)))
+            }
+          case Filenames.OrderSignature =>
+            resourceProvider.getOrderSignature(sel.path.getParent) match {
+              case Success(data) => Left(OrderDocDetailData(data))
+              case Failure(t) => Right(ErrorMsg("Failed to load order.signature detail data", Some(t.getMessage)))
+            }
+          case Filenames.OrderMetadata =>
+            val order = resourceProvider.getOrder(sel.path.getParent)
+            val orderMetadata = resourceProvider.getOrderMetadata(sel.path.getParent)
+
+            val detailData: Try[OrderHedgingDetailData] = for{o <- order; omd <- orderMetadata} yield {
+              OrderHedgingDetailData(o, omd.hedgingData, OrderHedgingDetailData.RowData.create(o, omd.hedgingData)              )
+            }
+            
+            detailData match {
+              case Success(detailData) => Left(detailData)
+              case Failure(f) => 
+                Right( ErrorMsg("Failed to load order.metadata details", 
+                  Some(Seq(order, orderMetadata).filter(_.isFailure).map(_.failed.get.getMessage).mkString("\n")))
+                )
+            }
+          case f =>
+            Right(ErrorMsg(s"unexpected filename: $f"))
         }
-        doc.toOption.map(OrderDocDetailData(_))
+
+        Some(
+          detailDataOrError.fold(
+            detailData => detailData,
+            errorMsg => DetailDataLoadingError(errorMsg)
+          )
+        )
       case _ => None
     }
     _orderDocDetailDataProp.setValue(detailData)
@@ -986,7 +1034,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
     * */
   private def findOrderDirNavTreeItem(path: Path): Option[TreeItemExt[NavigatorItem]] = {
     val dummyTreeItem4BinarySearch = new TreeItemExt[NavigatorItem](
-      OrderDirNavigatorItem(path = path, displayName = null, validationState=ValidationState.NotValidated,
+      OrderDirNavigatorItem(path = path, displayName = null, retailerOrderReference = null, validationState=ValidationState.NotValidated,
         hasInvalidOrderDocs=false, validationResults=IndexedSeq.empty, productInfos=null)
     )
     val index = Collections.binarySearch(navigatorContentRoot.filteredChildren_source, dummyTreeItem4BinarySearch,
@@ -1222,7 +1270,17 @@ class ApplicationModel(archiveReader : ArchiveReader,
                                  ) extends Predicate[TreeItem[NavigatorItem]] {
     def withTextFilter(filter: Option[String]): NavigatorFilterChain = {
       textFilter = filter.map {
-        filterStr => genericPredicateOf(treeItem => treeItem.getValue.displayName.contains(filterStr))
+        filterStr => genericPredicateOf{treeItem => 
+          val displayNameMatches = treeItem.getValue.displayName.contains(filterStr)
+          val retailerOrderIdMatches : Boolean = if(displayNameMatches) false else {
+            treeItem.getValue match {
+              case o : OrderDirNavigatorItem =>
+                o.retailerOrderReference.contains(filterStr)
+              case  _  => false
+            }             
+          }
+          displayNameMatches || retailerOrderIdMatches
+        }
       }
       copy(activeFilters = calcActiveFilters)
     }

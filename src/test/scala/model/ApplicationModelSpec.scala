@@ -659,6 +659,31 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
           }
         }
       }
+      describe("when an existing retailer-order-id is entered to navigator's text filter") {
+        it("the model should behave as follows") {
+          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+            setup.loadPoolArchive_blocking(defaultArchiveFile)
+            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            model.navigatorContentRoot.getChildren.size shouldBe 7
+            val orderDir01 = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
+            //set retailer-order-reference
+            val customerOrderIdToFind = "8d466591-97de-45b7-8eb9-4aaefe22902f"
+            model.setNavigatorFilterText(Some(customerOrderIdToFind))
+
+            model.navigatorContentRoot.getChildren.size shouldBe 1
+            model.navigatorContentRoot.getChildren.get(0).getValue match {
+              case dirItem : OrderDirNavigatorItem =>
+                withClue("order.retailerOrderReference in the found order directory"){
+                  customerOrderIdToFind shouldEqual setup.poolResourceProvider.getOrder(dirItem.path).get.metaData.retailerOrderReference
+                }
+              case x => fail(s"OrderDirNavigatorItem expected, but obtained $x")
+            }
+
+            model.setNavigatorFilterText(None)
+            model.navigatorContentRoot.getChildren.size shouldBe 7
+          }
+        }
+      }
     }
   }
 

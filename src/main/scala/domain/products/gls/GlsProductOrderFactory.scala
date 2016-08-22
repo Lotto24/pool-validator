@@ -21,7 +21,7 @@ class GlsProductOrderFactory extends ProductOrderFactory{
       case GlsGamingProductOrder.productURI => Try {
         val bets = parseBets((orderData \ "bets").as[JsArray])
         val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-        GlsGamingProductOrder(bets, participationPools = partPools)
+        GlsGamingProductOrder(bets, participationPools = partPools, orderData)
       }
       case x => Failure(new Exception(s"unexpected productURI:$x"))
     }

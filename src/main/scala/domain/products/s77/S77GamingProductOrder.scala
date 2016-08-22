@@ -7,6 +7,7 @@ import domain.products.GamingProduct._
 import domain.products.ML24GamingProduct.S77
 import domain.products.ParticipationPools.{ParticipationPoolId, formatParticipationPoolId}
 import domain.products.{Bet, GamingProductOrder, ParticipationPools}
+import play.api.libs.json.JsObject
 
 
 case class S77Bet(
@@ -16,9 +17,11 @@ case class S77Bet(
 
 case class S77GamingProductOrder(
   bets: Seq[S77Bet],
-  participationPools: S77ParticipationPools
+  participationPools: S77ParticipationPools,
+  json : JsObject
 ) extends GamingProductOrder {
   override def productURI: URI = S77GamingProductOrder.productURI
+  override def withEmptyJson(): S77GamingProductOrder = copy(json = JsObject(Seq.empty))
 }
 
 

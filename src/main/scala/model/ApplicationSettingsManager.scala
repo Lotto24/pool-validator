@@ -281,8 +281,6 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   }
 
   private def saveAllCertificateSpecs(config: PropertiesConfiguration, certSpecs: Seq[CertificateCfgItem]): Unit = {
-    println(s"saveAllCertificateSpecs()..#certSpecs: ${certSpecs.size}")
-
     certSpecs.foreach{certSpec =>
       saveCertificateSpec(config, certSpec)
     }
@@ -291,7 +289,6 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   }
 
   private def saveAllTimestamperCertSpecs(config: PropertiesConfiguration, certSpecs : Seq[TimestamperCertCfgItem]) : Unit = {
-    println(s"saveAllTimestamperCertSpecs()..#certSpecs: ${certSpecs.size}")
     require(certSpecs.map(_.priority).toSet.size == certSpecs.size,
       s"certSpecs.map(_.position) must not contain duplicates: ${certSpecs.map(_.priority)}")
     certSpecs.sortBy(_.priority).foreach{ certSpec =>

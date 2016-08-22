@@ -7,6 +7,7 @@ import java.nio.file.{Path, Paths}
 import java.time.format.DateTimeParseException
 import java.time.{LocalDate, LocalTime, ZoneOffset, ZonedDateTime}
 
+import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolResource.Filenames
 import domain.products.ML24GamingProduct
 import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools}
@@ -66,6 +67,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
   }
 
   feature("Parsing of an order") {
+    
     scenario("Parsing of a valid order should succeed") {
       info(s"workingDir: $workingDir")
 
@@ -90,16 +92,14 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
       val expectedPartPools = EjsParticipationPools(LocalDate.of(2015, 12, 18), drawCount = 8)
 
-      val expectedOrder = EjsGamingProductOrder(expectedBets, participationPools = expectedPartPools)
+      val expectedOrder = EjsGamingProductOrder(expectedBets, participationPools = expectedPartPools, json= play.api.libs.json.JsObject(Seq.empty))
 
       withClue(s"metaData.gamingProductOrders(${EjsGamingProductOrder.productURI})") {
-        o.gamingProductOrders(EjsGamingProductOrder.productURI) shouldEqual expectedOrder
+        o.gamingProductOrders(EjsGamingProductOrder.productURI).withEmptyJson() shouldEqual expectedOrder
       }
-      withClue("metaData.retailerOrderReference")(o.gamingProductOrders(EjsGamingProductOrder.productURI) shouldEqual expectedOrder)
     }
 
     scenario("parsing order with all products"){
-
       val orderFile = new File(workingDir, "src/test/resources/orderdocs/order/orderWithAllProducts.json")
       val provider = new PoolResourceProviderImpl
       val o: Order = provider.getOrderForFilePath(orderFile.toPath).get
@@ -176,6 +176,30 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       withClue("signature")(o.signature shouldEqual
         "C0E1L2UcS1SfilFTZTr7Ya2Nk8mxC9O2l8XJnXVI4txgdX9cLoitJ0AKenY0nrqoycLt9qmNUPzNk7wGlOZFjnZJRP+UhInba5lbpBnG49/wT+XrWnZd7ImMofxzBKuZRsJW7zX4QW3OIzt6uB65WkLZbW+2Zclfi2AmGYVDqvk="
           .getBytes(StandardCharsets.UTF_8))
+    }
+  }
+
+  feature("Parsing of an order.metadata"){
+    scenario("Parsing of a order.metadata should succeed") {
+      val provider = new PoolResourceProviderImpl
+      val file = new File(workingDir, "src/test/resources/orderdocs/order.metadata/order.metadata")
+      val m: OrderMetadata = provider.getOrderMetadataForFilePath(file.toPath).get
+
+      withClue("docPath")(m.docPath shouldEqual file.toPath)
+
+      val expectedHedgingData = OrderHedgingData(
+        Map(
+          "ems" -> Seq(DrawHedgingData(poolId="ems/2016-08-19", LocalDate.of(2016, 8, 19), hedgingChannel=Some("ILS")))
+        )
+      )
+      withClue("hedgingData")(m.hedgingData shouldEqual expectedHedgingData)
+    }
+    
+    scenario("parse order.metadata with syntax error"){
+      val provider = new PoolResourceProviderImpl
+      val file = new File(workingDir, "src/test/resources/orderdocs/order.metadata/order.metadata_withSyntaxError")
+      val r = provider.getOrderMetadataForFilePath(file.toPath)
+      r.isFailure shouldEqual true
     }
   }
 }

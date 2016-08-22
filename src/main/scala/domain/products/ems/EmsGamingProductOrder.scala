@@ -6,9 +6,9 @@ import java.time.{DayOfWeek, LocalDate}
 import domain.products.ML24GamingProduct.EMS
 import domain.products.ParticipationPools.ParticipationPoolId
 import domain.products.{Bet, GamingProduct, GamingProductOrder, ParticipationPools}
-import domain.products.ParticipationPools.{formatParticipationPoolId, parseParticipationPoolId}
-
+import domain.products.ParticipationPools.formatParticipationPoolId
 import GamingProduct.gamingProductIdToURI
+import play.api.libs.json.JsObject
 
 
 case class EmsBet(
@@ -35,9 +35,11 @@ case class EmsParticipationPools(
 
 case class EmsGamingProductOrder(
   bets: Seq[EmsBet],
-  participationPools: EmsParticipationPools
+  participationPools: EmsParticipationPools,
+  json : JsObject
 ) extends GamingProductOrder {
   override def productURI: URI = EmsGamingProductOrder.productURI
+  override def withEmptyJson(): EmsGamingProductOrder = copy(json = JsObject(Seq.empty))
 }
 
 

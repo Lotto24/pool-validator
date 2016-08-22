@@ -19,7 +19,7 @@ class EmsProductOrderFactory extends ProductOrderFactory {
       case EmsGamingProductOrder.productURI => Try {
         val bets = parseBets((orderData \ "bets").as[JsArray])
         val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-        EmsGamingProductOrder(bets, participationPools = partPools)
+        EmsGamingProductOrder(bets, participationPools = partPools, orderData)
       }
       case x => Failure(new Exception(s"unexpected productURI:$x"))
     }

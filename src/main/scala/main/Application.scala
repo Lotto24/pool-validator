@@ -5,6 +5,7 @@ import java.lang.Thread.UncaughtExceptionHandler
 import java.nio.file.Path
 import java.util.concurrent.{Executor, Executors}
 import javafx.application.Platform
+import javafx.scene.image.Image
 
 import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
@@ -26,7 +27,6 @@ object Application extends JFXApp {
   //Constants
   val PARAM_configFile = "configFile"
   val configFileName = "settings.properties"
-  val applicationCssFileName = "application.css"
   val defaultConfigFileLocation = Option(System.getProperty("user.dir", null))
   val defaultConfigFile: Option[Path] = defaultConfigFileLocation.map(dir => new File(dir, configFileName).toPath)
 
@@ -84,13 +84,10 @@ object Application extends JFXApp {
 
     stage = new PrimaryStage
     stage.setTitle("Pool validator")
+    stage.getIcons.add(new Image("icons/poolvalidator_icon_48px.png"))
 
     val scene = new Scene(appView)
-
-    val applicationCss = getClass.getClassLoader.getResource(applicationCssFileName)
-    assert(applicationCss != null, s"not found: $applicationCssFileName")
-
-    scene.getStylesheets.add(applicationCss.toExternalForm)
+    scene.getStylesheets.add("application.css")
 
     stage.scene = scene
 

@@ -48,6 +48,7 @@ case class ArchiveNavigatorItem(path: Path,
 
 case class OrderDirNavigatorItem(path: Path,
                                  displayName: String,
+                                 retailerOrderReference: String,
                                  validationState: ValidationState.Value,
                                  hasInvalidOrderDocs: Boolean,
                                  validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty,
@@ -87,6 +88,7 @@ case class OrderDocNavigatorItem(path: Path,
 
   override def isValid: Option[Boolean] = if (validationResults.isEmpty) None else Some(validationResults.forall(_.isOk))
 }
+
 
 /**
   * Options used to filter the content of the `NavigatorView`.

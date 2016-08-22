@@ -21,7 +21,7 @@ class S6ProductOrderFactory extends ProductOrderFactory{
       case S6GamingProductOrder.productURI => Try {
         val bets = parseBets((orderData \ "bets").as[JsArray])
         val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-        S6GamingProductOrder(bets, participationPools = partPools)
+        S6GamingProductOrder(bets, participationPools = partPools, orderData)
       }
       case x => Failure(new Exception(s"unexpected productURI:$x"))
     }

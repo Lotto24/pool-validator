@@ -203,6 +203,10 @@ detail-view
 ==============================================================================
 **/
 
+.detail-data-error-pane .data-group {
+    -fx-background-color: rgba(255,0,0,0.5);
+}
+
 .detail-view .scroll-pane .viewport{
     -fx-background-color: transparent;
 }
@@ -216,6 +220,37 @@ detail-view
     -fx-max-width: 600px;
     -fx-pref-width: 600px;
 }
+
+
+
+.hedging-detail-pane .table-view{
+    -fx-fixed-cell-size: 24;
+}
+
+.hedging-detail-pane .table-view .column-header .label {
+    -fx-alignment: center-left;
+}
+
+.hedging-detail-pane .table-view .table-column.productid {
+    /*-fx-pref-width: 100px;*/
+}
+
+.hedging-detail-pane .table-view .table-column.drawdate {
+    /*-fx-pref-width: 110px;*/
+}
+
+.hedging-detail-pane .table-view .table-column.bets {
+    /*-fx-pref-width: 550px;*/
+}
+
+.hedging-detail-pane .table-view .table-cell.bet{
+    -fx-font-family: "monospace";
+}
+
+.hedging-detail-pane .table-view .table-column.hedgingchannel {
+    /*-fx-pref-width: 150px;*/
+}
+
 
 
 .archive-detail-pane .key-value-pair .text-area:readonly.value{
@@ -233,39 +268,59 @@ detail-view
     -fx-padding: 5 0 10 0;
 }
 
-.ejs-order-pane {
+.table-view-order-pane {
     -fx-padding: 0 0 0 60;
 }
 
-.generic-order-pane {
+.default-order-pane {
     -fx-padding: 0 0 0 60;
 }
 
-.ejs-order-pane .section-separator{
+.table-view-order-pane .section-separator{
     -fx-max-width: 550;
 }
 
-.table-column.numbers, .table-column.euronumbers {
-    -fx-min-width: 130px;
-    -fx-pref-width: 130px;
+.table-view-order-pane .table-column.numbers {
+    -fx-min-width: 310px;
+    -fx-pref-width: 310px;
 }
 
-.ejs-order-pane .table-view.bets{
-    -fx-max-width: 260px;
+.table-view-order-pane .table-column.extranumbers {
+    -fx-min-width: 140px;
+    -fx-pref-width: 140px;
+}
+
+.table-view-order-pane .table-view.bets{
+    -fx-max-width: 450px;
     -fx-fixed-cell-size: 24;
 }
 
-.ejs-order-pane .key-value-pair.partpools{
+.table-view-order-pane.s77 .table-view.bets,
+.table-view-order-pane.s6 .table-view.bets,
+.table-view-order-pane.glss .table-view.bets
+{
+    -fx-max-width: 310px;
+}
+
+
+.table-view-order-pane.s77 .table-view.bets,
+.table-view-order-pane.s6 .table-view.bets,
+.table-view-order-pane.glss .table-view.bets
+{
+    -fx-max-width: 310px;
+}
+
+.table-view-order-pane .key-value-pair.partpools{
     -fx-pref-width: 260;
     -fx-max-width: 260;
 }
 
-.ejs-order-pane .key-value-pair.partpools .label{
+.table-view-order-pane .key-value-pair.partpools .label{
     -fx-min-width: 160;
     -fx-max-width: 160;
 }
 
-.ejs-order-pane .table-view.bets .column-header .label{
+.table-view-order-pane .table-view.bets .column-header .label{
     -fx-alignment: center-left;
 }
 

@@ -9,6 +9,7 @@ import java.util.Base64
 
 import _root_.util.Utils
 import domain.Order._
+import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.Filenames
 import domain.PoolResourceProvider.ProductOrderFactory
@@ -43,6 +44,8 @@ trait PoolResourceProvider {
   def getOrderResultSignatureTimestamp(orderDirPath: Path): Try[OrderResultSignatureTimestamp]
 
   def getOrderSignature(orderDirPath: Path): Try[OrderSignature]
+
+  def getOrderMetadata(getParent: Path): Try[OrderMetadata]
 
   def getPoolDigestTimestamp(poolDirPath: Path): Try[PoolDigestTimestamp]
 
@@ -93,13 +96,10 @@ object PoolResourceProvider {
 
 class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = ProductOrderFactory.allProductsOrderFactory) extends PoolResourceProvider {
 
-  protected def getInputStream(filePath: Path): Try[InputStream] = {
-    val resourceName = filePath.getFileName.toString
-    Utils.isFileUnreadable(filePath.toFile) match {
-      case Some(error) => Failure(new Exception(error))
-      case _ => Success(new FileInputStream(filePath.toFile))
-    }
-  }
+  /**
+    * Intended to be overridden in tests (e.g. to simulate missing files)
+    * */
+  protected def getInputStream(filePath: Path): Try[InputStream] = Utils.getInputStream(filePath)
 
   override def getPoolMetadata(poolDirPath: Path): Try[PoolMetadata] = {
     val filePath = poolDirPath.resolve(Filenames.Metadata)
@@ -118,7 +118,7 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
           case _ =>
             val data = (node \ "participation-pool-digest" \ "base64").as[String].getBytes(StandardCharsets.UTF_8)
             val algorithm = (node \ "participation-pool-digest" \ "algorithm").as[String]
-            Some(PoolMetadata.PoolDigest(base64=data, algorithm=algorithm))
+            Some(PoolMetadata.PoolDigest(base64 = data, algorithm = algorithm))
         }
       }
 
@@ -200,7 +200,9 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     val filePath = orderDirPath.resolve(Filenames.OrderResultSignatureTimestamp)
     getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { base64data =>
       val data = Base64.getDecoder.decode(base64data.toArray)
-      val tsResponse = Try{new TimeStampResponse(data)}
+      val tsResponse = Try {
+        new TimeStampResponse(data)
+      }
 
       OrderResultSignatureTimestamp(value = new String(base64data.toArray, StandardCharsets.UTF_8),
         timeStampResponse = tsResponse,
@@ -223,12 +225,35 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     }
   }
 
+  override def getOrderMetadata(orderDirPath: Path): Try[OrderMetadata] = {
+    getOrderMetadataForFilePath(orderDirPath.resolve(Filenames.OrderMetadata))
+  }
+
+  def getOrderMetadataForFilePath(filePath: Path): Try[OrderMetadata] = {
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+      val node = Json.parse(data.toArray)
+      val jsonHedgingData = (node \ "hedging-data").as[JsObject]
+
+      val hedgingDataPerProduct: Map[GamingProductId, Seq[DrawHedgingData]] = jsonHedgingData.value.iterator.map {
+        case (productURI, jsonProductOrderHedgingData) =>
+          val productId = gamingProductIdFromURI(new URI(productURI))
+          val drawHedgingData = jsonProductOrderHedgingData.as[JsObject].fields.map { case (poolId, drawHedgingData) =>
+            val hedgingChannel: Option[String] = (drawHedgingData \ "hedging-channel").toOption.map(_.as[String])
+            val (_, drawDate) = ParticipationPools.parseParticipationPoolId(poolId)
+            DrawHedgingData(poolId = poolId, drawDate, hedgingChannel = hedgingChannel)
+          }
+          (productId, drawHedgingData)
+      }.toMap
+      OrderMetadata(OrderHedgingData(hedgingDataPerProduct), filePath, data)
+    }
+  }
+
   override def getPoolDigestTimestamp(poolDirPath: Path): Try[PoolDigestTimestamp] = {
     val filePath = poolDirPath.resolve(Filenames.PoolDigestTimestamp)
-      getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
-        PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
-          docPath = poolDirPath.resolve(Filenames.PoolDigestTimestamp), rawData = data)
-      }
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+      PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
+        docPath = poolDirPath.resolve(Filenames.PoolDigestTimestamp), rawData = data)
+    }
   }
 
   override def getOrderDirPaths(poolLocation: Path): Try[IndexedSeq[Path]] = {
@@ -238,8 +263,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     }
   }
 
-  override def getOrderDocPaths(orderDirPath: Path) : Try[IndexedSeq[Path]] = {
-    Try{
+  override def getOrderDocPaths(orderDirPath: Path): Try[IndexedSeq[Path]] = {
+    Try {
       orderDirPath.toFile.listFiles().map(_.toPath)
     }
   }
@@ -248,7 +273,7 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
 
 /**
   * Combines several `ProductOrderFactory` instances to allow the processing of multi-product orders.
-  * */
+  **/
 class CompositeProductOrderFactory(productOrderFactories: Seq[ProductOrderFactory]) extends ProductOrderFactory {
 
   override def isApplicableFor(productURI: URI): Boolean = productOrderFactories.exists(_.isApplicableFor(productURI))

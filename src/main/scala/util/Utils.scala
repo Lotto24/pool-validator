@@ -1,6 +1,7 @@
 package util
 
 import java.io._
+import java.nio.file.Path
 import java.security.PublicKey
 import java.security.cert.{CertificateFactory, X509Certificate}
 import java.time.DayOfWeek
@@ -31,6 +32,13 @@ object Utils {
     }
   }
 
+  def getInputStream(filePath: Path): Try[InputStream] = {
+    val resourceName = filePath.getFileName.toString
+    Utils.isFileUnreadable(filePath.toFile) match {
+      case Some(error) => Failure(new Exception(error))
+      case _ => Success(new FileInputStream(filePath.toFile))
+    }
+  }
 
   def readPublicKeyFromPemFile(pemFile: File): Try[PublicKey] = {
     tryFileReadable(pemFile).flatMap{file =>

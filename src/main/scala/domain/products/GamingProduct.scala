@@ -1,6 +1,7 @@
 package domain.products
 
 import java.net.URI
+
 import domain.products.GamingProduct.GamingProductId
 
 
@@ -11,7 +12,7 @@ trait GamingProduct {
 
   def id: GamingProductId
 
-  def drawSeries: DrawSeries
+  def lottery: PrimaryLottery
 
 }
 
@@ -39,45 +40,147 @@ object ML24GamingProduct {
   object EJS extends ML24GamingProduct {
 
     override val id: GamingProductId = "ejs"
-    override val drawSeries: DrawSeries = DrawSeries.Eurojackpot
+    override val lottery: PrimaryLottery = PrimaryLottery.Eurojackpot
 
   }
 
   object GLS extends ML24GamingProduct {
 
     override val id: GamingProductId = "gls"
-    override val drawSeries: DrawSeries = DrawSeries.`6aus49`
+    override val lottery: PrimaryLottery = PrimaryLottery.`6aus49`
 
   }
 
   object S6 extends ML24GamingProduct {
 
     override val id: GamingProductId = "s6"
-    override val drawSeries: DrawSeries = DrawSeries.Super6
+    override val lottery: PrimaryLottery = PrimaryLottery.Super6
 
   }
 
   object S77 extends ML24GamingProduct {
 
     override val id: GamingProductId = "s77"
-    override val drawSeries: DrawSeries = DrawSeries.Spiel77
+    override val lottery: PrimaryLottery = PrimaryLottery.Spiel77
 
   }
 
   object EMS extends ML24GamingProduct {
 
     override val id: GamingProductId = "ems"
-    override val drawSeries: DrawSeries = DrawSeries.Euromillions
+    override val lottery: PrimaryLottery = PrimaryLottery.Euromillions
 
   }
 
   object GLSS extends ML24GamingProduct {
 
     override val id: GamingProductId = "glss"
-    override val drawSeries: DrawSeries = DrawSeries.Glücksspirale
+    override val lottery: PrimaryLottery = PrimaryLottery.Glücksspirale
 
   }
 
-  val All = Vector(EJS, GLS, S6, S77, EMS, GLSS)
+  object IRLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "irls"
+    override val lottery: PrimaryLottery = PrimaryLottery.IrishLotto
+  }
+
+  object UKLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "ukls"
+    override val lottery: PrimaryLottery = PrimaryLottery.UkLotto
+  }
+
+  object AOLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "aols"
+    override val lottery: PrimaryLottery = PrimaryLottery.AUSOzLotto
+  }
+
+  object APLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "apls"
+    override val lottery: PrimaryLottery = PrimaryLottery.AUSPowerball
+  }
+
+  object ASLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "asls"
+    override val lottery: PrimaryLottery = PrimaryLottery.AUSSaturdayLotto
+  }
+
+  object AMLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "amls"
+    override val lottery: PrimaryLottery = PrimaryLottery.AUSMondayLotto
+  }
+
+  object AWLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "awls"
+    override val lottery: PrimaryLottery = PrimaryLottery.AUSWednesdayLotto
+  }
+
+  object SLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "sls"
+    override val lottery: PrimaryLottery = PrimaryLottery.SwedishLotto
+  }
+
+  object UKTBLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "uktbls"
+    override def lottery: PrimaryLottery = PrimaryLottery.UkThunderball
+  }
+
+  object FLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "fls"
+    override val lottery: PrimaryLottery = PrimaryLottery.FrenchLotto
+  }
+
+  object PLS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "pls"
+    override val lottery: PrimaryLottery = PrimaryLottery.PolishLotto
+  }
+
+  object XMASL extends ML24GamingProduct {
+
+    override val id: GamingProductId = "xmasl"
+    override val lottery: PrimaryLottery = PrimaryLottery.Xmasl
+  }
+
+  object IRLSP1 extends ML24GamingProduct {
+
+    override val id: GamingProductId = "irlsp1"
+    override val lottery: PrimaryLottery = PrimaryLottery.IrishLottoPlus1
+  }
+
+  object IRLSP2 extends ML24GamingProduct {
+
+    override val id: GamingProductId = "irlsp2"
+    override val lottery: PrimaryLottery = PrimaryLottery.IrishLottoPlus2
+  }
+
+  object EMSPLUS extends ML24GamingProduct {
+
+    override val id: GamingProductId = "emsp"
+    override val lottery: PrimaryLottery = PrimaryLottery.EuromillionsPlus
+  }
+
+  object IRISHRAFFLE extends ML24GamingProduct {
+
+    override val id: GamingProductId = "irlsr"
+    override val lottery: PrimaryLottery = PrimaryLottery.IrishRaffle
+  }
+
+  object PLUS5 extends ML24GamingProduct {
+    override val id: GamingProductId = "plus5"
+    override val lottery: PrimaryLottery = PrimaryLottery.Plus5
+  }
+
+  val All = Vector[ML24GamingProduct](EJS, GLS, S6, S77, EMS, EMSPLUS, GLSS, IRLS, IRLSP1, IRLSP2, IRISHRAFFLE, UKLS, AOLS, APLS, ASLS, AMLS, AWLS, SLS,
+              UKTBLS, FLS, PLS, XMASL, PLUS5)
 
 }

@@ -13,12 +13,8 @@ val versions = Map(
 )
 
 lazy val commonDependencies = Seq(
-  "com.typesafe.akka" %% "akka-actor" % versions("akka"),
-  "com.typesafe.akka" %% "akka-slf4j" % versions("akka"),
   "org.slf4j" % "slf4j-api" % versions("slf4j"),
   "org.slf4j" % "log4j-over-slf4j" % versions("slf4j"),
-  "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0",
-  "io.spray" %% "spray-json" % "1.3.1",
   "ch.qos.logback" % "logback-classic" % "1.1.2",
   "commons-io" % "commons-io" % "2.4",
   "commons-codec" % "commons-codec" % "1.10",

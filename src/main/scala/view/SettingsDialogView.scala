@@ -9,7 +9,6 @@ import javafx.scene.layout._
 import javafx.stage.FileChooser.ExtensionFilter
 import javafx.util.Callback
 
-import com.typesafe.scalalogging.Logger
 import util.Utils
 import Utils.{ErrorMsg, UIValue}
 import model.ApplicationSettings
@@ -80,8 +79,8 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
     tefCaCertFile.text.onChange((_, _, newValue) => {
       tefCaCertFile.tooltip = {
-        val t = new Tooltip();
-        t.text = newValue;
+        val t = new Tooltip()
+        t.text = newValue
         t
       }
     })
@@ -264,7 +263,7 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
 class PublicKeyEditor extends HBox with UIUpdateHandler {
 
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   private val listView = new ListView[PublicKeyListItem]
   private val btnAdd = new Button("Add")
@@ -396,7 +395,7 @@ class PublicKeyEditor extends HBox with UIUpdateHandler {
 
 
   class PublicKeyValueEditPane extends VBox {
-    private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+    private val logger = LoggerFactory.getLogger(this.getClass)
     private val grid = new GridPane()
 
     private val tefKeyId = new TextField()
@@ -541,7 +540,7 @@ object PublicKeyEditor {
 
 class TimestamperCertificateEditor extends HBox with UIUpdateHandler{
 
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   private val listView = new ListView[TimestamperCertCfgItem]
 
@@ -729,7 +728,7 @@ class TimestamperCertificateEditor extends HBox with UIUpdateHandler{
 
 
   class TimestamperCertValueEditPane extends VBox {
-    private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+    private val logger = LoggerFactory.getLogger(this.getClass)
     private val grid = new GridPane()
 
     private val tefName = new TextField()

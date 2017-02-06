@@ -268,7 +268,7 @@ detail-view
     -fx-padding: 5 0 10 0;
 }
 
-.table-view-order-pane {
+.generic-order-pane {
     -fx-padding: 0 0 0 60;
 }
 
@@ -276,51 +276,47 @@ detail-view
     -fx-padding: 0 0 0 60;
 }
 
-.table-view-order-pane .section-separator{
+.generic-order-pane .section-separator{
     -fx-max-width: 550;
 }
 
-.table-view-order-pane .table-column.numbers {
+.generic-order-pane .table-column.numbers {
     -fx-min-width: 310px;
     -fx-pref-width: 310px;
 }
 
-.table-view-order-pane .table-column.extranumbers {
+.generic-order-pane .table-column.extranumbers {
     -fx-min-width: 140px;
     -fx-pref-width: 140px;
 }
 
-.table-view-order-pane .table-view.bets{
+.generic-order-pane .table-view.bets{
     -fx-max-width: 450px;
     -fx-fixed-cell-size: 24;
 }
 
-.table-view-order-pane.s77 .table-view.bets,
-.table-view-order-pane.s6 .table-view.bets,
-.table-view-order-pane.glss .table-view.bets
+/**Limit the table-width for Products with only one number-type (e.g. s77, s6) */
+.generic-order-pane.product_number-types_1 .table-view.bets
 {
     -fx-max-width: 310px;
 }
 
-
-.table-view-order-pane.s77 .table-view.bets,
-.table-view-order-pane.s6 .table-view.bets,
-.table-view-order-pane.glss .table-view.bets
-{
-    -fx-max-width: 310px;
-}
-
-.table-view-order-pane .key-value-pair.partpools{
-    -fx-pref-width: 260;
-    -fx-max-width: 260;
-}
-
-.table-view-order-pane .key-value-pair.partpools .label{
+.generic-order-pane .key-value-pair.orderinfo .label{
     -fx-min-width: 160;
     -fx-max-width: 160;
 }
 
-.table-view-order-pane .table-view.bets .column-header .label{
+.generic-order-pane .key-value-pair.partpools{
+    -fx-pref-width: 260;
+    -fx-max-width: 260;
+}
+
+.generic-order-pane .key-value-pair.partpools .label{
+    -fx-min-width: 160;
+    -fx-max-width: 160;
+}
+
+.generic-order-pane .table-view.bets .column-header .label{
     -fx-alignment: center-left;
 }
 

@@ -9,7 +9,6 @@ import java.util.concurrent.{CancellationException, TimeUnit}
 
 import _root_.util.Task.CancellableSupplierAI
 import _root_.util.{Task, TaskImpl}
-import com.typesafe.scalalogging.Logger
 import domain.ArchiveReader.ProgressInfo
 import domain.PoolResource.Filenames
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -40,7 +39,7 @@ object ArchiveReader {
   **/
 class ArchiveReaderImpl(implicit ec: ExecutionContext) extends ArchiveReader {
 
-  val logger = Logger(LoggerFactory.getLogger(getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
 
   var tempDir: Path = _
 

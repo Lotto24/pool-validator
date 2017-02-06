@@ -1,7 +1,7 @@
 package domain.products
 
 import java.net.URI
-import java.time.LocalDate
+import java.time.{DayOfWeek, LocalDate}
 import java.time.format.DateTimeFormatter
 
 import domain.products.GamingProduct.GamingProductId
@@ -11,6 +11,7 @@ import play.api.libs.json.JsObject
 
 trait GamingProductOrder{
   def participationPools: ParticipationPools
+  def variant: Option[String]
   def productURI: URI
   def bets : Seq[Bet]
   
@@ -24,7 +25,13 @@ trait GamingProductOrder{
 trait ParticipationPools {
   def firstDate: LocalDate
 
+  def drawCount : Int
+  
   def ids: Set[ParticipationPoolId]
+}
+
+trait ParticipationPoolsMultiplyDays extends ParticipationPools {
+  def drawDays : Set[DayOfWeek]
 }
 
 object ParticipationPools {

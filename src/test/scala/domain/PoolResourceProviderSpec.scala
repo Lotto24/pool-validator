@@ -9,6 +9,7 @@ import java.time.{LocalDate, LocalTime, ZoneOffset, ZonedDateTime}
 
 import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolResource.Filenames
+import domain.products.GamingProduct.GamingProductId
 import domain.products.ML24GamingProduct
 import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools}
 import org.scalatest.{FeatureSpec, Matchers}
@@ -86,13 +87,13 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
       val expectedBets =
         Seq(
-          EjsBet(numbers = Set(1, 2, 3, 4, 5), euroNumbers = Set(1, 8)),
-          EjsBet(numbers = Set(2, 4, 6, 29, 32), euroNumbers = Set(4, 5))
+          EjsBet(numbers = Seq(1, 2, 3, 4, 5), euroNumbers = Seq(1, 8)),
+          EjsBet(numbers = Seq(2, 4, 6, 29, 32), euroNumbers = Seq(4, 5))
         )
 
       val expectedPartPools = EjsParticipationPools(LocalDate.of(2015, 12, 18), drawCount = 8)
 
-      val expectedOrder = EjsGamingProductOrder(expectedBets, participationPools = expectedPartPools, json= play.api.libs.json.JsObject(Seq.empty))
+      val expectedOrder = EjsGamingProductOrder(expectedBets, expectedPartPools, variant = None, json= play.api.libs.json.JsObject(Seq.empty))
 
       withClue(s"metaData.gamingProductOrders(${EjsGamingProductOrder.productURI})") {
         o.gamingProductOrders(EjsGamingProductOrder.productURI).withEmptyJson() shouldEqual expectedOrder
@@ -106,14 +107,20 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
 
       withClue("docPath")(o.docPath shouldEqual orderFile.toPath)
 
-      withClue("metaData.creationDate")(o.metaData.creationDate.toString shouldEqual "2016-07-21T11:45:38.728Z")
-      withClue("metaData.retailCustomer")(o.metaData.retailCustomer shouldEqual "597de3bc-5a00-479f-8fbe-f0652fdd3339")
-      withClue("metaData.retailerHref")(o.metaData.retailerHref shouldEqual "http://zoe.mylotto24.co.uk/entities/tipp24.com")
-      withClue("metaData.retailerOrderReference")(o.metaData.retailerOrderReference shouldEqual "f39a17f3-a9d7-4712-84ce-589a9380b854")
-      withClue("metaData.retailerOrderReference")(o.gamingProductOrders.size shouldEqual ML24GamingProduct.All.size)
-
-      //TODO check productOrders & bets
-
+      withClue("metaData.creationDate")(o.metaData.creationDate.toString shouldEqual "2017-02-05T13:22:47.123Z")
+      withClue("metaData.retailCustomer")(o.metaData.retailCustomer shouldEqual "ff97acdb-d79a-4f8b-b6ae-8ada63d9ea38")
+      withClue("metaData.retailerHref")(o.metaData.retailerHref shouldEqual "http://zoe.mylotto24.co.uk/entities/mylotto24")
+      withClue("metaData.retailerOrderReference")(o.metaData.retailerOrderReference shouldEqual "8e0c2944-6303-4ed2-8342-2f3bbfe921bd")
+      withClue("order.gamingProductOrders"){
+        val productIdsInOrder: Set[GamingProductId] = o.gamingProductOrders.keys.map{uri =>
+          domain.products.GamingProduct.gamingProductIdFromURI(uri)
+        }.toSet
+        val allProductIds = ML24GamingProduct.All.map(_.id).toSet
+        withClue(s"order.gamingProductOrders difference: ${ allProductIds diff productIdsInOrder}"){
+          productIdsInOrder shouldEqual allProductIds 
+        }
+      }
+      withClue("order.gamingProductOrders.size")(o.gamingProductOrders.size shouldEqual ML24GamingProduct.All.size)
     }
 
   }

@@ -13,7 +13,6 @@ import javafx.scene.control.TreeItem
 
 import _root_.util.Task.{CancellableMappingAI, CancellableSupplierAI}
 import _root_.util.{Task, TaskImpl, Utils}
-import com.typesafe.scalalogging.Logger
 import domain.PoolResource.Filenames
 import domain.PoolValidator._
 import domain._
@@ -50,7 +49,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
                        implicit val executionContext: ExecutionContext
                       ) {
 
-  private val logger = Logger(LoggerFactory.getLogger(getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
 
   //Properties
   private val _poolSourceProp = new SimpleObjectProperty(Option.empty[PoolSource])
@@ -562,7 +561,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
       resourceProvider.getPoolMetadata(archiveDir.toPath).map { poolMetaInfos =>
         val productInfos = navigatorContentRoot.filteredChildren_source.collect {
           case NavigatorTreeItem(orderDirNavItem: OrderDirNavigatorItem) => orderDirNavItem
-        }.toSeq.map(_.productInfos)
+        }.map(_.productInfos)
 
         var betsCountPerProduct = Map.empty[GamingProductId, Int]
 
@@ -716,7 +715,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
               ValidationViewStateItem(checkResult, level = 1)
             }
 
-            _validationViewItemsProp.setAll( (structuralItem_pool +: poolValidationItems) ++ orderValidationItems.toSeq: _*)
+            _validationViewItemsProp.setAll( (structuralItem_pool +: poolValidationItems) ++ orderValidationItems: _*)
 
           case _ => logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
         }

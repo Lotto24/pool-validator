@@ -10,7 +10,6 @@ import javafx.scene.control._
 import javafx.scene.{Cursor, Node}
 import javafx.util.{Callback, StringConverter}
 
-import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
 import jfxtras.scene.control.LocalDateTimeTextField
 import model.ApplicationModel._
@@ -31,7 +30,7 @@ import scalafx.stage.FileChooser.ExtensionFilter
 
 class ApplicationView extends VBox with UIUpdateHandler{
   private var controller: ApplicationController = _
-  private val logger = Logger(LoggerFactory.getLogger(getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
   private val menuBar = new ApplicationMenuBar()
   private val toolbar = new ApplicationToolbar
   private val contentPane = new SplitPane
@@ -103,11 +102,11 @@ class ApplicationView extends VBox with UIUpdateHandler{
     menuBar.menuFile.item_loadDirectory.setDisable(! canOpen)
   }
 
-  def setValidateArchiveEnabled(value: Boolean) = {
+  def setValidateArchiveEnabled(value: Boolean): Unit = {
     toolbar.setValidateArchiveEnabled(value)
   }
 
-  def setValidateSingleOrderEnabled(value: Boolean) = {
+  def setValidateSingleOrderEnabled(value: Boolean): Unit = {
     toolbar.setValidateSingleOrderEnabled(value)
     navigator.setValidateSingleOrderEnabled(value)
   }
@@ -429,11 +428,11 @@ class ApplicationView extends VBox with UIUpdateHandler{
       node.setManaged(visible)
     }
 
-    def setValidateArchiveEnabled(value: Boolean) = {
+    def setValidateArchiveEnabled(value: Boolean): Unit = {
       btn_validate.disable = !value
     }
 
-    def setValidateSingleOrderEnabled(value: Boolean) = {
+    def setValidateSingleOrderEnabled(value: Boolean): Unit = {
       navigator.setValidateSingleOrderEnabled(value)
     }
   }

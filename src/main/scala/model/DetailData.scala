@@ -36,6 +36,7 @@ object OrderHedgingDetailData{
     * */
   case class RowData(productId : GamingProductId,
     poolId: ParticipationPoolId,
+    variant: Option[String],
     drawDate: LocalDate,
     bet : Bet,
     hedgingChannel: String
@@ -71,6 +72,7 @@ object OrderHedgingDetailData{
           RowData(
             productId = gamingProductIdFromURI(uri),
             poolId = poolId,
+            variant = gpo.variant, 
             drawDate,
             bet,
             hedgingChannel = hedgingChannel.getOrElse("")

@@ -3,7 +3,6 @@ package model
 import java.io.File
 import java.net.URI
 
-import com.typesafe.scalalogging.Logger
 import model.ApplicationSettings._
 import model.ApplicationSettingsManager.{LoadFailed, LoadResult, Loaded}
 import org.apache.commons.configuration.PropertiesConfiguration
@@ -145,7 +144,7 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   private val propKeyPrefix_publicKey = "publicKeys"
   private val propKeyPrefix_certificate = "certificates"
   private val propKeyPrefix_timstamperCertificate = "timestamper-certificates"
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   override def loadSettingsImpl(configSource: URI): LoadResult = {
     try {

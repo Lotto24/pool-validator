@@ -6,18 +6,17 @@ import java.time.{DayOfWeek, LocalDate}
 import domain.products.GamingProduct._
 import domain.products.ML24GamingProduct.S77
 import domain.products.ParticipationPools.{ParticipationPoolId, formatParticipationPoolId}
-import domain.products.{Bet, GamingProductOrder, ParticipationPools}
+import domain.products.{Bet, GamingProductOrder, ParticipationPoolsMultiplyDays}
 import play.api.libs.json.JsObject
 
 
-case class S77Bet(
-  numbers: Set[Int]
-) extends Bet
+case class S77Bet(numbers: Seq[Int]) extends Bet
 
 
 case class S77GamingProductOrder(
   bets: Seq[S77Bet],
   participationPools: S77ParticipationPools,
+  variant: Option[String],
   json : JsObject
 ) extends GamingProductOrder {
   override def productURI: URI = S77GamingProductOrder.productURI
@@ -34,7 +33,7 @@ case class S77ParticipationPools(
   firstDate: LocalDate,
   drawDays: Set[DayOfWeek],
   drawCount: Int
-) extends ParticipationPools {
+) extends ParticipationPoolsMultiplyDays {
 
   override def ids: Set[ParticipationPoolId] = {
     Iterator.iterate(firstDate)(_.plusDays(1))

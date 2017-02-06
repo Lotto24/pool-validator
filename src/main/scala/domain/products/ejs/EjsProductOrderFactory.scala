@@ -1,41 +1,24 @@
 package domain.products.ejs
 
-import java.net.URI
-import java.nio.file.Path
-import java.time.LocalDate
-
-import domain.PoolResourceProvider.ProductOrderFactory
-import play.api.libs.json.{JsArray, JsObject}
-
-import scala.util.{Failure, Try}
+import domain.PoolResourceProvider.ProductOrderFactoryAI
+import play.api.libs.json.JsObject
 
 
-class EjsProductOrderFactory extends ProductOrderFactory {
+class EjsProductOrderFactory extends ProductOrderFactoryAI[EjsBet, EjsParticipationPools, EjsGamingProductOrder]{
 
-  override def isApplicableFor(productURI: URI): Boolean = productURI == EjsGamingProductOrder.productURI
-
-  override def create(productURI: URI, orderData: JsObject, docPath: Path): Try[EjsGamingProductOrder] = {
-    productURI match {
-      case EjsGamingProductOrder.productURI => Try {
-        val bets = parseBets((orderData \ "bets").as[JsArray])
-        val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-        EjsGamingProductOrder(bets, participationPools = partPools, orderData)
-      }
-      case x => Failure(new Exception(s"unexpected productURI:$x"))
-    }
+  protected def parseBets(bets: Seq[JsObject]): Seq[EjsBet] = bets.map { bet => 
+    EjsBet(
+      numbers = (bet \ "numbers").get.as[Seq[Int]],
+      euroNumbers = (bet \ "euronumbers").as[Seq[Int]]
+    )
   }
 
-  private def parseBets(bets: JsArray): Seq[EjsBet] = {
-    bets.as[JsArray].value.map { bet => EjsBet(
-      numbers = (bet.as[JsObject] \ "numbers").get.as[JsArray].value.map(_.as[Int]).toSet,
-      euroNumbers = (bet.as[JsObject] \ "euronumbers").get.as[JsArray].value.map(_.as[Int]).toSet
-    )}
+  protected def parseParticipationPools(pools: JsObject): EjsParticipationPools = fromIntermediateSingleDayPoolsData(pools) { data =>
+    EjsParticipationPools(data.firstDate, data.drawCount)
+  }
+  
+  override protected def createOrder(bets: Seq[EjsBet], pools: EjsParticipationPools, variant: Option[String], json: JsObject): EjsGamingProductOrder = {
+    EjsGamingProductOrder(bets, pools, variant, json)
   }
 
-  def parseParticipationPools(pools: JsObject): EjsParticipationPools = {
-    val drawCount = (pools \ "draw-count").as[Int]
-    val firstDate = LocalDate.parse((pools \ "first-date").as[String])
-    EjsParticipationPools(firstDate, drawCount)
-  }
 }
-

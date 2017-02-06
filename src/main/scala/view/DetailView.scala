@@ -9,16 +9,15 @@ import javafx.scene.control._
 import javafx.scene.layout._
 
 import domain._
+import domain.products.Bet
 import domain.products.GamingProduct.GamingProductId
-import domain.products.ejs.{EjsBet, EjsGamingProductOrder}
-import domain.products.ems.{EmsBet, EmsGamingProductOrder}
-import domain.products.gls.{GlsBet, GlsGamingProductOrder}
-import domain.products.glss.{GlsSBet, GlsSGamingProductOrder}
-import domain.products.s6.{S6Bet, S6GamingProductOrder}
-import domain.products.s77.{S77Bet, S77GamingProductOrder}
-import domain.products.{Bet, GamingProductOrder}
+import domain.products.ejs.EjsBet
+import domain.products.ems.EmsBet
+import domain.products.gls.GlsBet
+import domain.products.glss.GlsSBet
+import domain.products.s6.S6Bet
+import domain.products.s77.S77Bet
 import model._
-import play.api.libs.json.Json
 import view.CssClass.Color
 import view.DetailView._
 import view.JfxImplicits._
@@ -267,283 +266,17 @@ object DetailView {
 
       ordersGroup.getChildren.clear()
 
-      data.doc.gamingProductOrders.foreach {
-        case (productId, productOrder) =>
-          val productLabel = new Label(s"\u2022 ${productId.toString}")
-          productLabel.getStyleClass += "producturl"
-          ordersGroup.getChildren.add(productLabel)
-          val orderPane : OrderPane[_ <: GamingProductOrder] = productOrder match {
-            case order : EjsGamingProductOrder => 
-              new EjsOrderPane().init().setOrder(order)
-            case order : EmsGamingProductOrder =>
-              new EmsOrderPane().init().setOrder(order)
-            case order : GlsGamingProductOrder =>
-              new GlsOrderPane().init().setOrder(order)
-            case order : GlsSGamingProductOrder =>
-              new GlsSOrderPane().init().setOrder(order)
-            case order : S6GamingProductOrder =>
-              new S6OrderPane().init().setOrder(order)
-            case order : S77GamingProductOrder =>
-              new S77OrderPane().init().setOrder(order)
-              
-            case _ =>
-              new DefaultOrderPane().init().setOrder(productOrder)
-          }
-          ordersGroup.getChildren.add(orderPane)
+      data.doc.gamingProductOrders.foreach { case (productId, productOrder) =>
+        val productLabel = new Label(s"\u2022 ${productId.toString}")
+        productLabel.getStyleClass += "producturl"
+        ordersGroup.getChildren.add(productLabel)
+        val orderPane = view.OrderPaneFactory.createOrderPane(productOrder).setOrder(productOrder)
+        ordersGroup.getChildren.add(orderPane)
       }
     }
   }
 
   
-  trait OrderPane[O <: GamingProductOrder] extends Pane {
-    def setOrder(order: O): this.type
-    def init(): this.type = this
-  }
-
-  
-  trait TableViewOrderPaneBase[O <: GamingProductOrder, T <: Bet] extends Pane with OrderPane[O] {
-    protected val tableViewBets = new TableView[T]
-
-    locally {
-      getStyleClass += "table-view-order-pane"
-
-      tableViewBets.getStyleClass += "bets"
-
-      val heightBinding = tableViewBets.fixedCellSizeProperty().multiply(Bindings.size(tableViewBets.getItems()).add(1.16))
-      tableViewBets.prefHeightProperty().bind(heightBinding)
-      tableViewBets.minHeightProperty().bind(heightBinding)
-      tableViewBets.maxHeightProperty().bind(heightBinding)
-
-      tableViewBets.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY)
-
-      createTableColumns()
-
-      tableViewBets.getColumns.foreach{ col =>
-        col.setResizable(false)
-        col.impl_setReorderable(false)
-        col.setSortable(false)
-      }
-
-      getChildren.addAll(
-        new SectionSeparator("Bets", level = 3),
-        tableViewBets
-      )
-    }
-
-    override def init(): this.type = {      
-      // add participation-pool widgets delivered by concrete implementations if so:
-      createParticipationPoolWidgets().foreach{ poolWidgetsParent =>
-        getChildren.addAll(
-          new VSpacer(),
-          new SectionSeparator("Participation pools", level = 3),
-          poolWidgetsParent,
-          new VSpacer()
-        )        
-      }
-      this
-    }
-
-    /** Factory-method to create implementation-specific TableColumns.*/
-    protected def createTableColumns(): Unit
-    
-    /** Factory-method to create implementation-specific widgets.*/
-    protected def createParticipationPoolWidgets(): Option[Node]
-  }
-  
-
-  class PoolSpecsPaneOneDay extends VBox {
-    val kvl_firstDate = new KeyValuePair("First date", level=3, cssClass = "partpools")
-    val kvl_drawCount = new KeyValuePair("Draw count", level=3, cssClass = "partpools")
-    getChildren.addAll(kvl_firstDate, kvl_drawCount)
-  }
-
-  
-  class PoolSpecsPaneMultiplDays extends VBox {
-    val kvl_firstDate = new KeyValuePair("First date", level=3, cssClass = "partpools")
-    val kvl_drawCount = new KeyValuePair("Draw count", level=3, cssClass = "partpools")
-    val kvl_drawDays = new KeyValuePair("Draw days", level=3, cssClass = "partpools")
-    getChildren.addAll(kvl_firstDate, kvl_drawCount, kvl_drawDays)
-  }
-
-  
-  class EjsOrderPane extends VBox with TableViewOrderPaneBase[EjsGamingProductOrder, EjsBet]{
-    private val poolSpecsPane = new PoolSpecsPaneOneDay
-
-    getStyleClass += "ejs"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns += new TableColumn[EjsBet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      }
-      tableViewBets.getColumns += new TableColumn[EjsBet, String] {
-        getStyleClass += "extranumbers"
-        setText("Euronumbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.euroNumbers.toSeq.sorted.mkString(", "))
-      }
-    }
-
-    protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-
-    def setOrder(order: EjsGamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-      this
-    }
-  }
- 
-  
-  class EmsOrderPane extends VBox with TableViewOrderPaneBase[EmsGamingProductOrder, EmsBet]{
-    val poolSpecsPane = new PoolSpecsPaneMultiplDays
-
-    getStyleClass += "ems"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns.add(new TableColumn[EmsBet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      })
-      tableViewBets.getColumns += new TableColumn[EmsBet, String] {
-        getStyleClass += "extranumbers"
-        setText("Starnumbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.starnumbers.toSeq.sorted.mkString(", "))
-      }
-    }
-
-    override protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-    
-    override def setOrder(order: EmsGamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-      poolSpecsPane.kvl_drawDays.setValue(order.participationPools.drawDays.mkString(", ").toString)
-      this
-    }
-  }
-  
-
-  class GlsOrderPane extends VBox with TableViewOrderPaneBase[GlsGamingProductOrder, GlsBet]{
-    val poolSpecsPane = new PoolSpecsPaneMultiplDays
-
-    getStyleClass += "gls"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns.add(new TableColumn[GlsBet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      })
-      tableViewBets.getColumns += new TableColumn[GlsBet, String] {
-        getStyleClass += "extranumbers"
-        setText("Supernumbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.supernumber.toString)
-      }
-    }
-
-    override protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-    
-    override def setOrder(order: GlsGamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.weeks.toString)
-      poolSpecsPane.kvl_drawDays.setValue(order.participationPools.drawDays.mkString(", ").toString)
-      this
-    }
-  }
-  
-
-  class GlsSOrderPane extends VBox with TableViewOrderPaneBase[GlsSGamingProductOrder, GlsSBet]{
-    val poolSpecsPane = new PoolSpecsPaneOneDay
-
-    getStyleClass += "glss"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns.add(new TableColumn[GlsSBet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      })
-    }
-
-    override protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-    
-    override def setOrder(order: GlsSGamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-      this
-    }
-  }
-
-  
-  class S6OrderPane extends VBox with TableViewOrderPaneBase[S6GamingProductOrder, S6Bet]{
-    val poolSpecsPane = new PoolSpecsPaneMultiplDays
-
-    getStyleClass += "s6"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns.add(new TableColumn[S6Bet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      })
-    }
-
-    override protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-    
-    override def setOrder(order: S6GamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-      poolSpecsPane.kvl_drawDays.setValue(order.participationPools.drawDays.mkString(", ").toString)
-      this
-    }
-  }
-
-  
-  class S77OrderPane extends VBox with TableViewOrderPaneBase[S77GamingProductOrder, S77Bet]{
-    val poolSpecsPane = new PoolSpecsPaneMultiplDays
-
-    getStyleClass += "s77"
-    
-    override protected def createTableColumns(): Unit = {
-      tableViewBets.getColumns.add(new TableColumn[S77Bet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      })
-    }
-
-    override protected def createParticipationPoolWidgets(): Option[Node] = Some(poolSpecsPane)
-    
-    override def setOrder(order: S77GamingProductOrder): this.type = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      poolSpecsPane.kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      poolSpecsPane.kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-      poolSpecsPane.kvl_drawDays.setValue(order.participationPools.drawDays.mkString(", ").toString)
-      this
-    }
-  }
-
-  /** Displays the raw data of a `GamingProductOrder`. */
-  class DefaultOrderPane extends VBox with OrderPane[GamingProductOrder]{
-    val taOrderRawData = new TextAreaWithAutoHeight
-    locally{
-      getStyleClass.add("default-order-pane")
-      taOrderRawData.setEditable(false)
-      getChildren.addAll(taOrderRawData)
-    }
-
-    def setOrder(order: GamingProductOrder): this.type = {
-      taOrderRawData.setText(Json.prettyPrint(order.json))
-      this
-    }
-  }
-
-
   class OrderResultDetailPane extends VBox with DetailPane[OrderDocDetailData[OrderResult]] {
     private val dateFormatter = DateTimeFormatter.ISO_ZONED_DATE_TIME
 
@@ -703,6 +436,13 @@ object DetailView {
         setText("ProductId")
         setPrefWidth(100)  //INFO the width currently cannot be set via CSS when the columns shall be resizable..
         this.addCellValuePojoSource(_.getValue.productId)
+      }
+
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
+        getStyleClass += "variant"
+        setText("Variant")
+        setPrefWidth(110)
+        this.addCellValuePojoSource(_.getValue.variant.getOrElse(""))
       }
 
       tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {

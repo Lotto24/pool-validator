@@ -6,14 +6,11 @@ import java.util.concurrent.Executors
 
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
-import com.typesafe.scalalogging.Logger
 import domain.Mockups.RunLaterExecutor4Tests.Mode
 import domain.Mockups.{ApplicationSettingsManagerMockup, PoolValidatorMockup, RunLaterExecutor4Tests}
 import domain.PoolValidator._
 import domain._
 import domain.products.ML24GamingProduct.EJS
-import domain.products.ejs.EjsProductOrderFactory
-import domain.products.gls.GlsProductOrderFactory
 import model.ApplicationModel._
 import model.ApplicationSettings._
 import org.scalatest._
@@ -269,9 +266,9 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
           }
           model.init()
           errorsCollector.size shouldBe 1
-          errorsCollector(0).message shouldBe "Invalid configuration"
-          withClue(s"errors(0).detail: ${errorsCollector(0).detail}") {
-            errorsCollector(0).detail.getOrElse("").contains("does not exist") shouldBe true
+          errorsCollector.head.message shouldBe "Invalid configuration"
+          withClue(s"errors(0).detail: ${errorsCollector.head.detail}") {
+            errorsCollector.head.detail.getOrElse("").contains("does not exist") shouldBe true
           }
           model.canOpenArchiveProp.getValue shouldBe false
         }
@@ -919,7 +916,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
 class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
-  private val logger = Logger(LoggerFactory.getLogger(getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
   private var _model: ApplicationModel = null
   private var failOnErrorMsg = true
   private var initModel = true

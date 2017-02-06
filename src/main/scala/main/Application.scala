@@ -7,7 +7,6 @@ import java.util.concurrent.{Executor, Executors}
 import javafx.application.Platform
 import javafx.scene.image.Image
 
-import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
 import domain._
 import model.{ApplicationModel, ApplicationSettingsManagerPropertyImpl}
@@ -37,7 +36,7 @@ object Application extends JFXApp {
 
   implicit val executionContext = scala.concurrent.ExecutionContext.Implicits.global
 
-  val logger = Logger(LoggerFactory.getLogger(getClass))
+  val logger = LoggerFactory.getLogger(getClass)
   val archiveReader = new ArchiveReaderImpl
   val resourceProvider = new PoolResourceProviderImpl
 

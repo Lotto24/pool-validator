@@ -95,7 +95,7 @@ object PoolResourceProvider {
   abstract class ProductOrderFactoryAI[B, P, O <: GamingProductOrder] extends ProductOrderFactory {
 
     /** Intermediate object for reading values of a `ParticipationPoolsMultiplyDays` */
-    protected case class ParticipationPoolsMultiplyDaysData(firstDate: LocalDate, drawCount: Int, drawDays: Set[DayOfWeek])
+    protected case class ParticipationPoolsMultipleDaysData(firstDate: LocalDate, drawCount: Int, drawDays: Set[DayOfWeek])
 
     /** Intermediate object for reading values of a `ParticipationPools` */
     protected case class ParticipationPoolsSingleDayData(firstDate: LocalDate, drawCount: Int)
@@ -124,8 +124,8 @@ object PoolResourceProvider {
     protected def parseParticipationPools(pools: JsObject): P
 
     /** Facilitates creation of concrete `ParticipationPoolsMultiplyDaysValues`-instances by using an intermediate data object.*/
-    protected def fromIntermediateMultiDayPoolsData(pools: JsObject)( factoryFnct: ParticipationPoolsMultiplyDaysData => P) : P = {
-      val intermediate = ParticipationPoolsMultiplyDaysData(
+    protected def fromIntermediateMultiDayPoolsData(pools: JsObject)( factoryFnct: ParticipationPoolsMultipleDaysData => P) : P = {
+      val intermediate = ParticipationPoolsMultipleDaysData(
         firstDate = (pools \ "first-date").as[LocalDate],
         drawDays = (pools \ "draw-days").as[Set[DayOfWeek]],
         drawCount = (pools \ "draw-count").as[Int]

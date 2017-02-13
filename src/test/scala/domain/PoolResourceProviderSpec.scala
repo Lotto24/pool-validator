@@ -4,14 +4,36 @@ import java.io.{ByteArrayInputStream, File, InputStream}
 import java.nio.charset.StandardCharsets
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Path, Paths}
+import java.time._
+import java.time.DayOfWeek._
 import java.time.format.DateTimeParseException
-import java.time.{LocalDate, LocalTime, ZoneOffset, ZonedDateTime}
 
 import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolResource.Filenames
 import domain.products.GamingProduct.GamingProductId
 import domain.products.ML24GamingProduct
+import domain.products.amls.{AmlsBet, AmlsParticipationPools}
+import domain.products.aols.{AolsBet, AolsParticipationPools}
+import domain.products.apls.{AplsBet, AplsParticipationPools}
+import domain.products.asls.{AslsBet, AslsParticipationPools}
+import domain.products.awls.{AwlsBet, AwlsParticipationPools}
 import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools}
+import domain.products.ems.{EmsBet, EmsParticipationPools}
+import domain.products.emsplus.{EmsPlusBet, EmsPlusParticipationPools}
+import domain.products.fls.{FlsBet, FlsParticipationPools}
+import domain.products.gls.{GlsBet, GlsParticipationPools}
+import domain.products.glss.{GlsSBet, GlsSParticipationPools}
+import domain.products.irishraffle.{IrishRaffleBet, IrishRaffleParticipationPools}
+import domain.products.irls.p1.IrlsP1ParticipationPools
+import domain.products.irls.{IrlsBet, IrlsParticipationPools}
+import domain.products.pls.{PlsBet, PlsParticipationPools}
+import domain.products.plus5.{Plus5Bet, Plus5ParticipationPools}
+import domain.products.s6.{S6Bet, S6ParticipationPools}
+import domain.products.s77.{S77Bet, S77ParticipationPools}
+import domain.products.sls.{SlsBet, SlsParticipationPools}
+import domain.products.ukls.{UklsBet, UklsParticipationPools}
+import domain.products.uktbls.{UktblsBet, UktblsParticipationPools}
+import domain.products.xmasl.{XmaslBet, XmaslParticipationPools}
 import org.scalatest.{FeatureSpec, Matchers}
 import play.api.libs.json.Json
 import util.Utils
@@ -121,8 +143,216 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
         }
       }
       withClue("order.gamingProductOrders.size")(o.gamingProductOrders.size shouldEqual ML24GamingProduct.All.size)
-    }
 
+      import ML24GamingProduct._
+      import domain.products.GamingProduct.gamingProductIdToURI
+
+      val ejsGpo = o.gamingProductOrders(gamingProductIdToURI(EJS.id))
+      withClue(s"ejsGpo $ejsGpo"){
+        ejsGpo.variant shouldBe Some("variant_1")
+        ejsGpo.bets shouldBe Seq(
+          EjsBet(numbers = Seq(1, 2, 3, 4, 5), euroNumbers = Seq(1, 8)),
+          EjsBet(numbers = Seq(2, 4, 6, 29, 32), euroNumbers = Seq(4, 5))
+        )
+        ejsGpo.participationPools shouldBe EjsParticipationPools(firstDate = LocalDate.of(2017, 2, 10), drawCount = 1)
+      }
+      
+      val glsGpo = o.gamingProductOrders(gamingProductIdToURI(GLS.id))
+      withClue(s"glsGpo:$glsGpo"){
+        glsGpo.variant shouldBe Some("variant_1")
+        glsGpo.bets shouldBe Seq(
+          GlsBet(numbers = Seq(1, 2, 3, 4, 5, 6), supernumber = 7, system = None),
+          GlsBet(numbers = Seq(1, 2, 4, 6, 29, 32, 49), supernumber = 0, system = Some("full"))
+        )
+        glsGpo.participationPools shouldBe GlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+      
+      val s6Gpo = o.gamingProductOrders(gamingProductIdToURI(S6.id))
+      withClue(s"s6Gpo:$s6Gpo"){
+        s6Gpo.variant shouldBe Some("variant_1")
+        s6Gpo.bets shouldBe Seq(
+          S6Bet(numbers = Seq(0, 8, 1, 8, 3, 6)),
+          S6Bet(numbers = Seq(3, 6, 2, 8, 1, 9))
+        )
+        s6Gpo.participationPools shouldBe S6ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+      
+      
+      val s77Gpo = o.gamingProductOrders(gamingProductIdToURI(S77.id))
+      withClue(s"s77Gpo:$s77Gpo"){
+        s77Gpo.variant shouldBe Some("variant_1")
+        s77Gpo.bets shouldBe Seq(
+          S77Bet(numbers = Seq(7, 0, 8, 1, 8, 3, 6)),
+          S77Bet(numbers = Seq(3, 6, 1, 8, 1, 9, 7))
+        )
+        s77Gpo.participationPools shouldBe S77ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      
+      val emsGpo = o.gamingProductOrders(gamingProductIdToURI(EMS.id))
+      withClue(s"emsGpo:$emsGpo"){
+        emsGpo.variant shouldBe Some("variant_1")
+        emsGpo.bets shouldBe Seq(
+          EmsBet(numbers=Seq(1, 2, 3, 4, 5), starnumbers = Seq(1, 11)),
+          EmsBet(numbers=Seq(2, 4, 6, 29, 32), starnumbers = Seq(2, 10))
+        )
+        emsGpo.participationPools shouldBe EmsParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawDays = Set(TUESDAY), drawCount = 1)
+      }
+
+
+      val glssGpo = o.gamingProductOrders(gamingProductIdToURI(GLSS.id))
+      withClue(s"glssGpo:$glssGpo"){
+        glssGpo.variant shouldBe Some("variant_1")
+        glssGpo.bets shouldBe Seq( 
+          GlsSBet(numbers = Seq(8, 1, 9, 2, 9, 4, 7)), 
+          GlsSBet(numbers = Seq(2, 5, 0, 7, 0, 8, 6))
+        )
+        glssGpo.participationPools shouldBe GlsSParticipationPools(firstDate = LocalDate.of(2017, 2, 11), drawCount = 1)
+      }
+
+
+      val emsplusGpo = o.gamingProductOrders(gamingProductIdToURI(EMSPLUS.id))
+      withClue(s"emsplusGpo:$emsplusGpo"){
+        emsplusGpo.variant shouldBe Some("variant_1")
+        emsplusGpo.bets shouldBe Seq(
+          EmsPlusBet(numbers = Seq(1, 2, 3, 4, 5)),
+          EmsPlusBet(numbers = Seq(2, 4, 6, 29, 32))
+        )
+        emsplusGpo.participationPools shouldBe EmsPlusParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawDays = Set(TUESDAY), drawCount = 1)
+      }
+      
+      val irlsGpo = o.gamingProductOrders(gamingProductIdToURI(IRLS.id))
+      withClue(s"irlsGpo:$irlsGpo"){
+        irlsGpo.variant shouldBe Some("variant_1")
+        irlsGpo.bets shouldBe Seq(IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
+        irlsGpo.participationPools shouldBe IrlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val irlsp1Gpo = o.gamingProductOrders(gamingProductIdToURI(IRLSP1.id))
+      withClue(s"irlsp1Gpo:$irlsp1Gpo"){
+        irlsp1Gpo.variant shouldBe Some("variant_1")
+        irlsp1Gpo.bets shouldBe Seq(IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
+        irlsp1Gpo.participationPools shouldBe IrlsP1ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val irlsp2Gpo = o.gamingProductOrders(gamingProductIdToURI(IRLSP2.id))
+      withClue(s"irlsp2Gpo:$irlsp2Gpo"){
+        irlsp2Gpo.variant shouldBe Some("variant_1")
+        irlsp2Gpo.bets shouldBe Seq(
+          IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4))
+        )
+        irlsp1Gpo.participationPools shouldBe IrlsP1ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val irishraffleGpo = o.gamingProductOrders(gamingProductIdToURI(IRISHRAFFLE.id))
+      withClue(s"irishraffleGpo:$irishraffleGpo"){
+        irishraffleGpo.variant shouldBe Some("variant_1")
+        irishraffleGpo.bets shouldBe Seq(
+          IrishRaffleBet(numbers = Seq(1, 2, 3, 4)),
+          IrishRaffleBet(numbers = Seq(0, 4, 6, 9))
+        )
+        irishraffleGpo.participationPools shouldBe IrishRaffleParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val uklsGpo = o.gamingProductOrders(gamingProductIdToURI(UKLS.id))
+      withClue(s"uklsGpo:$uklsGpo"){
+        uklsGpo.variant shouldBe Some("variant_1")
+        uklsGpo.bets shouldBe Seq(UklsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
+        uklsGpo.participationPools shouldBe UklsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val aolsGpo = o.gamingProductOrders(gamingProductIdToURI(AOLS.id))
+      withClue(s"aolsGpo:$aolsGpo"){
+        aolsGpo.variant shouldBe Some("variant_1")
+        aolsGpo.bets shouldBe Seq(AolsBet(numbers = Seq(2, 3, 4, 5, 6, 7, 8)))
+        aolsGpo.participationPools shouldBe AolsParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawCount = 1)
+      }
+
+      val aplsGpo = o.gamingProductOrders(gamingProductIdToURI(APLS.id))
+      withClue(s"aplsGpo:$aplsGpo"){
+        aplsGpo.variant shouldBe Some("variant_1")
+        aplsGpo.bets shouldBe Seq(
+          AplsBet(numbers = Seq(1, 2, 3, 4, 5, 6), powerball = 2),
+          AplsBet(numbers = Seq(2, 3, 4, 5, 6, 7), powerball = 3)
+        )
+        aplsGpo.participationPools shouldBe AplsParticipationPools(firstDate = LocalDate.of(2017, 2, 9), drawCount = 1)
+      }
+
+      val aslsGpo = o.gamingProductOrders(gamingProductIdToURI(ASLS.id))
+      withClue(s"aslsGpo:$aslsGpo"){
+        aslsGpo.variant shouldBe Some("variant_1")
+        aslsGpo.bets shouldBe Seq(
+          AslsBet(numbers = Seq(1, 2, 3, 4, 5, 6)),
+          AslsBet(numbers = Seq(2, 3, 4, 5, 6, 7))
+        )
+        aslsGpo.participationPools shouldBe AslsParticipationPools(firstDate = LocalDate.of(2017, 2, 11), drawCount = 1)
+      }
+      
+      val amlsGpo = o.gamingProductOrders(gamingProductIdToURI(AMLS.id))
+      withClue(s"amlsGpo:$amlsGpo"){
+        amlsGpo.variant shouldBe Some("variant_1")
+        amlsGpo.bets shouldBe Seq(AmlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
+        amlsGpo.participationPools shouldBe AmlsParticipationPools(firstDate = LocalDate.of(2017, 2, 13), drawCount = 1)
+      }
+
+      val awlsGpo = o.gamingProductOrders(gamingProductIdToURI(AWLS.id))
+      withClue(s"awlsGpo:$awlsGpo"){
+        awlsGpo.variant shouldBe Some("variant_1")
+        awlsGpo.bets shouldBe Seq(AwlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
+        awlsGpo.participationPools shouldBe AwlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawCount = 1)
+      }
+
+      val slsGpo = o.gamingProductOrders(gamingProductIdToURI(SLS.id))
+      withClue(s"slsGpo:$slsGpo"){
+        slsGpo.variant shouldBe Some("variant_1")
+        slsGpo.bets shouldBe Seq(SlsBet(numbers = Seq(1, 2, 3, 4, 5, 6, 7)))
+        slsGpo.participationPools shouldBe SlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val uktblsGpo = o.gamingProductOrders(gamingProductIdToURI(UKTBLS.id))
+      withClue(s"uktblsGpo:$uktblsGpo"){
+        uktblsGpo.variant shouldBe Some("variant_1")
+        uktblsGpo.bets shouldBe Seq(
+          UktblsBet(numbers = Seq(1, 2, 3, 4, 5), thunderball = 10),
+          UktblsBet(numbers = Seq(6, 7, 8, 9, 10), thunderball = 11)
+        )
+        uktblsGpo.participationPools shouldBe UktblsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
+      }
+
+      val flsGpo = o.gamingProductOrders(gamingProductIdToURI(FLS.id))
+      withClue(s"flsGpo:$flsGpo"){
+        flsGpo.variant shouldBe Some("variant_1")
+        flsGpo.bets shouldBe Seq(
+          FlsBet(numbers = Seq(1, 2, 3, 4, 5), chancenumber = 2),
+          FlsBet(numbers = Seq(2, 3, 4, 5, 6), chancenumber = 3)
+        )
+        flsGpo.participationPools shouldBe FlsParticipationPools(firstDate = LocalDate.of(2017, 2, 6), drawDays = Set(MONDAY), drawCount = 1)
+      }
+
+      val plsGpo = o.gamingProductOrders(gamingProductIdToURI(PLS.id))
+      withClue(s"plsGpo:$plsGpo"){
+        plsGpo.variant shouldBe Some("variant_1")
+        plsGpo.bets shouldBe Seq(PlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
+        plsGpo.participationPools shouldBe PlsParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawDays = Set(TUESDAY), drawCount = 1)
+      }
+
+      val xmaslGpo = o.gamingProductOrders(gamingProductIdToURI(XMASL.id))
+      withClue(s"xmaslGpo:$xmaslGpo"){
+        xmaslGpo.variant shouldBe Some("variant_1")
+        xmaslGpo.bets shouldBe Seq(XmaslBet(numbers = Seq(1, 2, 3, 4, 5)))
+        xmaslGpo.participationPools shouldBe XmaslParticipationPools(firstDate = LocalDate.of(2017, 12, 22))
+      }
+
+      val plus5Gpo = o.gamingProductOrders(gamingProductIdToURI(PLUS5.id))
+      withClue(s""){
+        plus5Gpo.variant shouldBe Some("variant_1")
+        plus5Gpo.bets shouldBe Seq(
+          Plus5Bet(numbers = Seq(1, 2, 3, 4, 5, 6, 7, 8, 9)),
+          Plus5Bet(numbers = Seq(2, 3, 4, 5, 6, 7, 8, 9, 10))
+        )
+        plus5Gpo.participationPools shouldBe Plus5ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawCount = 1)
+      }
+    }
   }
 
   feature("Parsing of an order.result") {

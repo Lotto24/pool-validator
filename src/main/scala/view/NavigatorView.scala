@@ -4,7 +4,6 @@ import javafx.event.EventHandler
 import javafx.geometry.Side
 import javafx.stage.WindowEvent
 
-import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
 import model.ApplicationModel.{PoolSourceArchive, PoolSourceDirectory}
 import model._
@@ -28,7 +27,7 @@ class NavigatorView extends VBox {
 
   private var currentRootNodeChildrenListener = Option.empty[Subscription]
 
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   def init(controller: ApplicationController) : Unit = {
     this.controller = controller

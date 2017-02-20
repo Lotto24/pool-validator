@@ -5,7 +5,6 @@ import javafx.scene.control._
 import javafx.scene.image.ImageView
 import javafx.scene.layout.{HBox, Priority, VBox}
 
-import com.typesafe.scalalogging.Logger
 import controller.ApplicationController
 import domain.PoolResource
 import domain.PoolValidator.{CheckFailure, CheckOk, OrderCheck, PoolCheck}
@@ -24,7 +23,7 @@ class ValidationView extends VBox with UIUpdateHandler {
   private val emptyPanelHint = new EmptyPanelHint
   private val filterBar = new FilterBar
   private val listView = new ListView[ValidationViewItem]
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   val progressBarGroup = new HBox() {
     val lblInProgress = new Label("Validation in progress:")

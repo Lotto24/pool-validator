@@ -1,0 +1,9 @@
+{
+  "hedging-data": {
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ems": {
+      "ems/2016-08-19": {
+        "hedging-channel": "ILS"
+      }
+    }
+  }
+}

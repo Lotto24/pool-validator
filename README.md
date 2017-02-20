@@ -3,6 +3,7 @@ GUI-tool for offline validation of participation pools
 =================================================================
 - [Introduction](#introduction)
 - [Build](#build)
+- [Build Windows executable)](#win-build)
  
 # Introduction 
 This project provides a GUI tool for validating downloadable participation pool archives
@@ -30,3 +31,38 @@ The Java heap size can be adjusted via variable CFG_OPTS in the start scripts, e
 set CFG_OPTS=-Xmx2G
 ```
 A heap size of 2 GB (2G) or more is recommended!
+
+# Build Windows executable
+
+The sbt file also includes a task to create a Windows x64 executable wrapper containing all
+jars.
+
+Prerequisites:
+
+* install Ant and launch4j if so
+* define system variable LAUNCH4J_HOME
+* run..
+    ```
+    sbt launch4j
+    ```
+
+The poolvalidator.exe is created in the target directory.
+In order to get a working distribution the poolvalidator.exe should be copied in a 
+directory like this:
+
+```
+[poolvalidator]
+    [credentials]
+    [jre]
+    poolvalidator.exe
+    poolvalidator.l4j.ini
+    settings.properties
+```
+
+The bundled jre (at least jre1.8.0_74) is expected to be in the jre directory.
+The heapsize can be configured in the poolvalidator.l4j.ini:
+```
+# Launch4j runtime config
+-Xms1g
+-Xmx4g
+```

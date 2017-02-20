@@ -3,25 +3,21 @@ package domain.products.ems
 import java.net.URI
 import java.time.{DayOfWeek, LocalDate}
 
+import domain.products.GamingProduct.gamingProductIdToURI
 import domain.products.ML24GamingProduct.EMS
-import domain.products.ParticipationPools.ParticipationPoolId
-import domain.products.{Bet, GamingProduct, GamingProductOrder, ParticipationPools}
-import domain.products.ParticipationPools.{formatParticipationPoolId, parseParticipationPoolId}
-
-import GamingProduct.gamingProductIdToURI
+import domain.products.ParticipationPools.{ParticipationPoolId, formatParticipationPoolId}
+import domain.products._
+import play.api.libs.json.JsObject
 
 
-case class EmsBet(
-  numbers: Set[Int],
-  starnumbers: Set[Int]
-) extends Bet
+case class EmsBet(numbers: Seq[Int], starnumbers: Seq[Int]) extends Bet
 
 
 case class EmsParticipationPools(
   firstDate: LocalDate,
   drawDays: Set[DayOfWeek],
   drawCount: Int
-) extends ParticipationPools {
+) extends ParticipationPoolsMultiplyDays {
 
   override def ids: Set[ParticipationPoolId] = {
     Iterator.iterate(firstDate)(_.plusDays(1))
@@ -35,9 +31,12 @@ case class EmsParticipationPools(
 
 case class EmsGamingProductOrder(
   bets: Seq[EmsBet],
-  participationPools: EmsParticipationPools
+  participationPools: EmsParticipationPools,
+  variant: Option[String],
+  json : JsObject
 ) extends GamingProductOrder {
   override def productURI: URI = EmsGamingProductOrder.productURI
+  override def withEmptyJson(): EmsGamingProductOrder = copy(json = JsObject(Seq.empty))
 }
 
 

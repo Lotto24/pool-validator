@@ -1,43 +1,23 @@
 package domain.products.glss
 
-
-import java.net.URI
-import java.nio.file.Path
 import java.time.LocalDate
 
-import domain.PoolResourceProvider.ProductOrderFactory
-import domain.products.GamingProductOrder
-import play.api.libs.json.{JsArray, JsObject}
-
-import scala.util.{Failure, Try}
+import domain.PoolResourceProvider.ProductOrderFactoryAI
+import play.api.libs.json.JsObject
 
 
-class GlsSProductOrderFactory extends ProductOrderFactory{
+class GlsSProductOrderFactory extends ProductOrderFactoryAI[GlsSBet, GlsSParticipationPools, GlsSGamingProductOrder]{
 
-  override def isApplicableFor(productURI: URI): Boolean = productURI == GlsSGamingProductOrder.productURI
-
-  override def create(productURI: URI, orderData: JsObject, docPath: Path): Try[GamingProductOrder] = {
-    productURI match {
-      case GlsSGamingProductOrder.productURI => Try {
-        val bets = parseBets((orderData \ "bets").as[JsArray])
-        val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-        GlsSGamingProductOrder(bets, partPools)
-      }
-      case x => Failure(new Exception(s"unexpected productURI:$x"))
-    }
+  protected def parseBets(bets: Seq[JsObject]): Seq[GlsSBet] = bets.map { bet => 
+    GlsSBet(numbers = (bet \ "numbers").get.as[Seq[Int]])
   }
 
-  private def parseBets(bets: JsArray): Seq[GlsSBet] = {
-    bets.as[JsArray].value.map { bet =>
-      val numbers = (bet.as[JsObject] \ "numbers").as[JsArray].value.map(_.as[Int]).toSet
-      GlsSBet(numbers)
-    }
+  protected def parseParticipationPools(pools: JsObject): GlsSParticipationPools = fromIntermediateSingleDayPoolsData(pools) { data =>
+    GlsSParticipationPools(data.firstDate, data.drawCount)
   }
-
-  def parseParticipationPools(pools: JsObject): GlsSParticipationPools = {
-    val firstDate = LocalDate.parse((pools \ "first-date").as[String])
-    val drawCount = (pools \ "draw-count").as[Int]
-    GlsSParticipationPools(firstDate, drawCount)
+  
+  override protected def createOrder(bets: Seq[GlsSBet], pools: GlsSParticipationPools, variant: Option[String], json: JsObject): GlsSGamingProductOrder = {
+    GlsSGamingProductOrder(bets, pools, variant, json)
   }
 
 }

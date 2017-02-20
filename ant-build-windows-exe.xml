@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ant project for launch4j, needed to override the launch4j.jar from sbt (launch4j does not support this via the commandline tool) -->
+<project default="hello">
+
+    <property environment="env"/>
+    <property name="launch4j.dir" location="${env.LAUNCH4J_HOME}" />
+    <property name="launch4j.jar" location="." />
+
+    <taskdef name="launch4j" classname="net.sf.launch4j.ant.Launch4jTask" classpath="${launch4j.dir}/launch4j.jar:${launch4j.dir}/lib/xstream.jar" />
+    <target name="l4j">
+        <launch4j configFile="launch4j-config-win.xml" jar="${launch4j.jar}"/>
+    </target>
+
+</project>

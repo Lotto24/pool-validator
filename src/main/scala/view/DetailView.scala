@@ -4,28 +4,30 @@ import java.nio.charset.StandardCharsets
 import java.time.format.{DateTimeFormatter, FormatStyle}
 import java.util.Locale
 import javafx.beans.binding.Bindings
-import javafx.geometry.Orientation
-import javafx.scene.{Node, Parent}
+import javafx.scene.Node
 import javafx.scene.control._
 import javafx.scene.layout._
 
 import domain._
+import domain.products.Bet
 import domain.products.GamingProduct.GamingProductId
-import domain.products.GamingProductOrder
-import domain.products.ejs.{EjsBet, EjsGamingProductOrder}
-import model.{OrderDirectoryDetailData, ArchiveDetailData, OrderDocDetailData, DetailData}
-import play.api.libs.json.{JsObject, Json}
+import domain.products.ejs.EjsBet
+import domain.products.ems.EmsBet
+import domain.products.gls.GlsBet
+import domain.products.glss.GlsSBet
+import domain.products.s6.S6Bet
+import domain.products.s77.S77Bet
+import model._
 import view.CssClass.Color
 import view.DetailView._
 import view.JfxImplicits._
 import view.controls.TextAreaWithAutoHeight
-import view.impl.StructureElements.{ViewHeader, EmptyPanelHint, VSpacer, SectionSeparator}
+import view.impl.StructureElements.{EmptyPanelHint, SectionSeparator, VSpacer, ViewHeader}
 
 import scala.collection.JavaConversions._
 import scala.util.Try
 import scalafx.Includes._
 import scalafx.scene.control.{Label, TextField}
-
 
 
 class DetailView extends VBox {
@@ -36,22 +38,26 @@ class DetailView extends VBox {
 
   //DetailPanes
   private val emptyPanelHint = new EmptyPanelHint
+  private val detailDataLoadingError = new DetailDataErrorPane
   private val orderDetailPane = new OrderDetailPane
   private val orderResultDetailPane = new OrderResultDetailPane
   private val orderResultSignatureDetailPane = new OrderResultSignatureDetailPane
   private val orderResultSignatureTimestampDetailPane = new OrderResultSignatureTimestampDetailPane
   private val orderSignatureDetailPane = new OrderSignatureDetailPane
+  private val hedgingDetailPane = new HedgingDetailPane
   private val archiveDetailPane = new ArchiveDetailPane
   private val orderDirDetailPane = new OrderDirDetailPane
 
   locally {
 
     orderDocDetailViewHolder.getChildren.setAll(
+      detailDataLoadingError,
       orderDetailPane,
       orderResultDetailPane,
       orderResultSignatureDetailPane,
       orderResultSignatureTimestampDetailPane,
       orderSignatureDetailPane,
+      hedgingDetailPane,
       archiveDetailPane,
       orderDirDetailPane,
       emptyPanelHint
@@ -101,8 +107,10 @@ class DetailView extends VBox {
             case OrderDocDetailData(doc: OrderResultSignature) => orderResultSignatureDetailPane
             case OrderDocDetailData(doc: OrderResultSignatureTimestamp) => orderResultSignatureTimestampDetailPane
             case OrderDocDetailData(doc: OrderSignature) => orderSignatureDetailPane
+            case data: OrderHedgingDetailData => hedgingDetailPane
             case data: ArchiveDetailData => archiveDetailPane
             case data : OrderDirectoryDetailData => orderDirDetailPane
+            case err : DetailDataLoadingError => detailDataLoadingError  
             case d => sys.error(s"unexpected DetailData: $d")
           }
         }
@@ -131,6 +139,8 @@ class DetailView extends VBox {
 
 object DetailView {
 
+  protected val dateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+  
   trait DetailPane[-T <: DetailData] extends Pane{
     def title: String
     def setData(data: T): Unit
@@ -182,6 +192,36 @@ object DetailView {
     }
   }
 
+  class DetailDataErrorPane extends VBox with DetailPane[DetailDataLoadingError] {
+
+    private val kvl_errorMessage = new KeyValuePair("Error", cssClass = "metadata")
+    private val kvl_errorDetail = new KeyValuePair("Detail", cssClass = "metadata", isMultiLineContent = true)
+
+    override val title: String = "Detail data loading error"
+
+    locally {
+      getStyleClass.addAll("detail-pane", "detail-data-error-pane")
+
+      val dataGroup = new VBox
+      dataGroup.getStyleClass += "data-group"
+      
+      VBox.setVgrow(dataGroup, Priority.ALWAYS)
+      
+      dataGroup.getChildren.addAll(
+        new SectionSeparator("Detail data loading error"),
+        kvl_errorMessage, 
+        kvl_errorDetail
+      )      
+      
+      getChildren.addAll(dataGroup)
+    }
+    
+    override def setData(data: DetailDataLoadingError): Unit = {
+      kvl_errorMessage.setValue(data.error.message)
+      kvl_errorDetail.setValue(data.error.detail.getOrElse(""))
+    }
+  }
+  
   class OrderDetailPane extends VBox with DetailPane[OrderDocDetailData[Order]] {
     private val kvl_meta_creationDate = new KeyValuePair("Creation date", cssClass = "metadata")
     private val kvl_meta_retailCustomer = new KeyValuePair("Retail customer", cssClass = "metadata")
@@ -197,7 +237,7 @@ object DetailView {
 
     locally {
 
-      getStyleClass += "detail-pane"
+      getStyleClass.addAll("detail-pane", "order-detail-pane")
 
       val metaDataGroup = new VBox
 
@@ -226,99 +266,18 @@ object DetailView {
 
       ordersGroup.getChildren.clear()
 
-      data.doc.gamingProductOrders.foreach {
-        case (productId, productOrder) =>
-          val productLabel = new Label(s"\u2022 ${productId.toString}")
-          productLabel.getStyleClass += "producturl"
-          ordersGroup.getChildren.add(productLabel)
-          productOrder match {
-            case order: EjsGamingProductOrder =>
-              val v = new EjsOrderPane
-              v.setOrder(order)
-              ordersGroup.getChildren.add(v)
-            case _ =>
-              val v = new GenericOrderPane
-              v.setOrder(productOrder, data.doc.rawData)
-              ordersGroup.getChildren.add(v)
-          }
+      data.doc.gamingProductOrders.foreach { case (productId, productOrder) =>
+        val productLabel = new Label(s"\u2022 ${productId.toString}")
+        productLabel.getStyleClass += "producturl"
+        ordersGroup.getChildren.add(productLabel)
+        val orderPane = view.OrderPaneFactory.createOrderPane(productOrder).setOrder(productOrder)
+        ordersGroup.getChildren.add(orderPane)
       }
     }
   }
 
-  class EjsOrderPane extends VBox{
-    val tableViewBets = new TableView[EjsBet]
-
-    val dateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
-
-    private val kvl_firstDate = new KeyValuePair("First date", level=3, cssClass = "partpools")
-    private val kvl_drawCount = new KeyValuePair("Draw count", level=3, cssClass = "partpools")
-
-    locally {
-      getStyleClass += "ejs-order-pane"
-
-      tableViewBets.getStyleClass += "bets"
-
-      val heightBinding = tableViewBets.fixedCellSizeProperty().multiply(Bindings.size(tableViewBets.getItems()).add(1.16))
-      tableViewBets.prefHeightProperty().bind(heightBinding)
-      tableViewBets.minHeightProperty().bind(heightBinding)
-      tableViewBets.maxHeightProperty().bind(heightBinding)
-
-      tableViewBets.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY)
-
-      tableViewBets.getColumns += new TableColumn[EjsBet, String] {
-        getStyleClass += "numbers"
-        setText("Numbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.numbers.toSeq.sorted.mkString(", "))
-      }
-
-      tableViewBets.getColumns += new TableColumn[EjsBet, String] {
-        getStyleClass += "euronumbers"
-        setText("Euronumbers")
-        this.addCellValuePojoSource(cdf => cdf.getValue.euroNumbers.toSeq.sorted.mkString(", "))
-      }
-
-      tableViewBets.getColumns.foreach{ col =>
-        col.setResizable(false)
-        col.impl_setReorderable(false)
-        col.setSortable(false)
-      }
-
-      getChildren.addAll(
-        new SectionSeparator("Bets", level = 3),
-        tableViewBets,
-        new VSpacer(),
-        new SectionSeparator("Participation pools", level = 3),
-        kvl_firstDate,
-        kvl_drawCount,
-        new VSpacer()
-      )
-    }
-
-    def setOrder(order: EjsGamingProductOrder): Unit = {
-      tableViewBets.getItems.setAll(order.bets: _*)
-      kvl_firstDate.setValue(dateFormat.format(order.participationPools.firstDate))
-      kvl_drawCount.setValue(order.participationPools.drawCount.toString)
-    }
-  }
-
-  class GenericOrderPane extends VBox {
-    val taOrderRawData = new TextAreaWithAutoHeight
-    locally{
-      getStyleClass.add("generic-order-pane")
-      taOrderRawData.setEditable(false)
-      getChildren.addAll(taOrderRawData)
-    }
-
-    def setOrder(order: GamingProductOrder, orderRawData : IndexedSeq[Byte]): Unit = {
-      val json = Json.parse(orderRawData.toArray)
-      val json_pretty = Json.prettyPrint( (json \ "gaming-product-orders" \ order.productURI.toString ).as[JsObject])
-      taOrderRawData.setText(json_pretty)
-    }
-  }
-
-
+  
   class OrderResultDetailPane extends VBox with DetailPane[OrderDocDetailData[OrderResult]] {
-
     private val dateFormatter = DateTimeFormatter.ISO_ZONED_DATE_TIME
 
     private val kvl_creationTime = new KeyValuePair("Creation time")
@@ -380,7 +339,6 @@ object DetailView {
       getChildren.addAll(dataGroup)
     }
 
-
     override def setData(data: OrderDocDetailData[OrderResultSignature]): Unit = {
       kvl_algorithm setValue data.doc.algorithm
       kvl_keyId setValue data.doc.keyId
@@ -389,7 +347,6 @@ object DetailView {
   }
 
   class OrderResultSignatureTimestampDetailPane extends VBox with DetailPane[OrderDocDetailData[OrderResultSignatureTimestamp]] {
-
     override val title : String = "Order Result Signature Timestamp Details"
 
     private val kvl_status = new KeyValuePair("Status")
@@ -453,6 +410,100 @@ object DetailView {
       kvl_algorithm.setValue(data.doc.algorithm)
       kvl_docPath.setValue(data.doc.docPath.toString)
       kvl_signature.setValue(new String(data.doc.signature.toArray, StandardCharsets.UTF_8))
+    }
+  }
+
+  
+  class HedgingDetailPane extends VBox with DetailPane[OrderHedgingDetailData] {
+
+    override val title : String = "Order Metadata Details"
+
+    val tableView = new TableView[OrderHedgingDetailData.RowData]
+  
+    locally {
+      getStyleClass.addAll("detail-pane", "hedging-detail-pane")
+
+      tableView.getStyleClass += "hedgingdata"
+     
+      val heightBinding = tableView.fixedCellSizeProperty().multiply(Bindings.size(tableView.getItems()).add(1.16))
+      tableView.prefHeightProperty().bind(heightBinding)
+      tableView.minHeightProperty().bind(heightBinding)
+      tableView.maxHeightProperty().bind(heightBinding)
+      tableView.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY)
+
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
+        getStyleClass += "productid"
+        setText("ProductId")
+        setPrefWidth(100)  //INFO the width currently cannot be set via CSS when the columns shall be resizable..
+        this.addCellValuePojoSource(_.getValue.productId)
+      }
+
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
+        getStyleClass += "variant"
+        setText("Variant")
+        setPrefWidth(110)
+        this.addCellValuePojoSource(_.getValue.variant.getOrElse(""))
+      }
+
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
+        getStyleClass += "drawdate"
+        setText("Draw date")
+        setPrefWidth(110)
+        this.addCellValuePojoSource(_.getValue.drawDate.format(dateFormat))
+      }
+      
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, Bet] {
+        getStyleClass += "bets"
+        setText("Bets")
+        setPrefWidth(550)
+        this.addCellValuePojoSource(_.getValue.bet)
+        
+        this.cellFactory = (x) => new TableCell[OrderHedgingDetailData.RowData, Bet](){
+          
+          getStyleClass.add("bet")
+          
+          override protected def updateItem (bet: Bet, empty: Boolean) : Unit = {
+            super.updateItem(bet, empty)
+            if(empty || (bet == null)){
+              setText("")
+            }else{
+              setText(
+                bet match {
+                  case bet : EjsBet => s"Numbers: ${bet.numbers.mkString(",")}".padTo(48, ' ') + s"Euronumbers: ${bet.euroNumbers.mkString(",")}"
+                  case bet : EmsBet => s"Numbers: ${bet.numbers.mkString(",")}".padTo(48, ' ') + s"Starnumbers: ${bet.starnumbers.mkString(",")}"
+                  case bet : GlsBet => s"Numbers: ${bet.numbers.mkString(",")}".padTo(48, ' ') + s"Supernumber: ${bet.supernumber}"
+                  case bet : GlsSBet => s"Numbers: ${bet.numbers.mkString(",")}"
+                  case bet : S6Bet => s"Numbers: ${bet.numbers.mkString(",")}"
+                  case bet : S77Bet => s"Numbers: ${bet.numbers.mkString(",")}"
+                  case bet => bet.toString
+                }
+              )
+            }
+          }
+        } 
+      }
+
+      tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
+        getStyleClass += "hedgingchannel"
+        setText("Hedging channel")
+        setPrefWidth(150)
+        this.addCellValuePojoSource(_.getValue.hedgingChannel)
+      }
+
+      tableView.getColumns.foreach{ col =>
+        col.impl_setReorderable(false)
+        col.setSortable(false)
+      }
+      
+      getChildren.addAll(
+        new SectionSeparator("Hedging data", level = 3),
+        tableView
+      )
+    }
+
+    override def setData(data: OrderHedgingDetailData): Unit = {
+      val data_flat = data.expandedBetListPerProduct.flatMap(_._2)
+      tableView.getItems.setAll(data.expandedBetListPerProduct.flatMap(_._2))
     }
   }
 

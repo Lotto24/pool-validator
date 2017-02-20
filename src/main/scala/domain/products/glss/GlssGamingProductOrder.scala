@@ -7,18 +7,20 @@ import domain.products.GamingProduct._
 import domain.products.ML24GamingProduct.GLSS
 import domain.products.ParticipationPools.{ParticipationPoolId, formatParticipationPoolId}
 import domain.products.{Bet, GamingProductOrder, ParticipationPools}
+import play.api.libs.json.JsObject
 
 
-case class GlsSBet(
-  numbers: Set[Int]
-) extends Bet
+case class GlsSBet(numbers: Seq[Int]) extends Bet
 
 
 case class GlsSGamingProductOrder(
   bets: Seq[GlsSBet],
-  participationPools: GlsSParticipationPools
+  participationPools: GlsSParticipationPools,
+  variant: Option[String],
+  json : JsObject
 ) extends GamingProductOrder {
   override def productURI: URI = GlsSGamingProductOrder.productURI
+  override def withEmptyJson(): GlsSGamingProductOrder = copy(json = JsObject(Seq.empty))
 }
 
 

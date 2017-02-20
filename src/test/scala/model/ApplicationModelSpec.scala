@@ -6,14 +6,11 @@ import java.util.concurrent.Executors
 
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
-import com.typesafe.scalalogging.Logger
 import domain.Mockups.RunLaterExecutor4Tests.Mode
 import domain.Mockups.{ApplicationSettingsManagerMockup, PoolValidatorMockup, RunLaterExecutor4Tests}
 import domain.PoolValidator._
 import domain._
 import domain.products.ML24GamingProduct.EJS
-import domain.products.ejs.EjsProductOrderFactory
-import domain.products.gls.GlsProductOrderFactory
 import model.ApplicationModel._
 import model.ApplicationSettings._
 import org.scalatest._
@@ -269,9 +266,9 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
           }
           model.init()
           errorsCollector.size shouldBe 1
-          errorsCollector(0).message shouldBe "Invalid configuration"
-          withClue(s"errors(0).detail: ${errorsCollector(0).detail}") {
-            errorsCollector(0).detail.getOrElse("").contains("does not exist") shouldBe true
+          errorsCollector.head.message shouldBe "Invalid configuration"
+          withClue(s"errors(0).detail: ${errorsCollector.head.detail}") {
+            errorsCollector.head.detail.getOrElse("").contains("does not exist") shouldBe true
           }
           model.canOpenArchiveProp.getValue shouldBe false
         }
@@ -659,6 +656,31 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
           }
         }
       }
+      describe("when an existing retailer-order-id is entered to navigator's text filter") {
+        it("the model should behave as follows") {
+          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+            setup.loadPoolArchive_blocking(defaultArchiveFile)
+            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            model.navigatorContentRoot.getChildren.size shouldBe 7
+            val orderDir01 = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
+            //set retailer-order-reference
+            val customerOrderIdToFind = "8d466591-97de-45b7-8eb9-4aaefe22902f"
+            model.setNavigatorFilterText(Some(customerOrderIdToFind))
+
+            model.navigatorContentRoot.getChildren.size shouldBe 1
+            model.navigatorContentRoot.getChildren.get(0).getValue match {
+              case dirItem : OrderDirNavigatorItem =>
+                withClue("order.retailerOrderReference in the found order directory"){
+                  customerOrderIdToFind shouldEqual setup.poolResourceProvider.getOrder(dirItem.path).get.metaData.retailerOrderReference
+                }
+              case x => fail(s"OrderDirNavigatorItem expected, but obtained $x")
+            }
+
+            model.setNavigatorFilterText(None)
+            model.navigatorContentRoot.getChildren.size shouldBe 7
+          }
+        }
+      }
     }
   }
 
@@ -894,7 +916,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
 class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
-  private val logger = Logger(LoggerFactory.getLogger(getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
   private var _model: ApplicationModel = null
   private var failOnErrorMsg = true
   private var initModel = true

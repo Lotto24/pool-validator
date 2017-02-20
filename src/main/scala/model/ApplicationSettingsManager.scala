@@ -3,7 +3,6 @@ package model
 import java.io.File
 import java.net.URI
 
-import com.typesafe.scalalogging.Logger
 import model.ApplicationSettings._
 import model.ApplicationSettingsManager.{LoadFailed, LoadResult, Loaded}
 import org.apache.commons.configuration.PropertiesConfiguration
@@ -145,7 +144,7 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   private val propKeyPrefix_publicKey = "publicKeys"
   private val propKeyPrefix_certificate = "certificates"
   private val propKeyPrefix_timstamperCertificate = "timestamper-certificates"
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(this.getClass)
 
   override def loadSettingsImpl(configSource: URI): LoadResult = {
     try {
@@ -281,8 +280,6 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   }
 
   private def saveAllCertificateSpecs(config: PropertiesConfiguration, certSpecs: Seq[CertificateCfgItem]): Unit = {
-    println(s"saveAllCertificateSpecs()..#certSpecs: ${certSpecs.size}")
-
     certSpecs.foreach{certSpec =>
       saveCertificateSpec(config, certSpec)
     }
@@ -291,7 +288,6 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   }
 
   private def saveAllTimestamperCertSpecs(config: PropertiesConfiguration, certSpecs : Seq[TimestamperCertCfgItem]) : Unit = {
-    println(s"saveAllTimestamperCertSpecs()..#certSpecs: ${certSpecs.size}")
     require(certSpecs.map(_.priority).toSet.size == certSpecs.size,
       s"certSpecs.map(_.position) must not contain duplicates: ${certSpecs.map(_.priority)}")
     certSpecs.sortBy(_.priority).foreach{ certSpec =>

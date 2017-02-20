@@ -4,27 +4,46 @@ import java.io._
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
-import java.time.{LocalDate, ZonedDateTime}
+import java.time.{DayOfWeek, LocalDate, ZonedDateTime}
 import java.util.Base64
 
 import _root_.util.Utils
 import domain.Order._
+import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.Filenames
 import domain.PoolResourceProvider.ProductOrderFactory
 import domain.products.GamingProduct._
-import domain.products.ejs.EjsProductOrderFactory
-import domain.products.ems.EmsProductOrderFactory
-import domain.products.gls.GlsProductOrderFactory
-import domain.products.glss.GlsSProductOrderFactory
-import domain.products.s6.S6ProductOrderFactory
-import domain.products.s77.S77ProductOrderFactory
+import domain.products.amls.{AmlsGamingProductOrder, AmlsProductOrderFactory}
+import domain.products.aols.{AolsGamingProductOrder, AolsProductOrderFactory}
+import domain.products.apls.{AplsGamingProductOrder, AplsProductOrderFactory}
+import domain.products.asls.{AslsGamingProductOrder, AslsProductOrderFactory}
+import domain.products.awls.{AwlsGamingProductOrder, AwlsProductOrderFactory}
+import domain.products.ejs.{EjsGamingProductOrder, EjsProductOrderFactory}
+import domain.products.ems.{EmsGamingProductOrder, EmsProductOrderFactory}
+import domain.products.emsplus.{EmsPlusGamingProductOrder, EmsPlusProductOrderFactory}
+import domain.products.fls.{FlsGamingProductOrder, FlsProductOrderFactory}
+import domain.products.gls.{GlsGamingProductOrder, GlsProductOrderFactory}
+import domain.products.glss.{GlsSGamingProductOrder, GlsSProductOrderFactory}
+import domain.products.irishraffle.{IrishRaffleGamingProductOrder, IrishRaffleProductOrderFactory}
+import domain.products.irls.p1.{IrlsP1GamingProductOrder, IrlsP1ProductOrderFactory}
+import domain.products.irls.p2.{IrlsP2GamingProductOrder, IrlsP2ProductOrderFactory}
+import domain.products.irls.{IrlsGamingProductOrder, IrlsProductOrderFactory}
+import domain.products.pls.{PlsGamingProductOrder, PlsProductOrderFactory}
+import domain.products.plus5.{Plus5GamingProductOrder, Plus5ProductOrderFactory}
+import domain.products.s6.{S6GamingProductOrder, S6ProductOrderFactory}
+import domain.products.s77.{S77GamingProductOrder, S77ProductOrderFactory}
+import domain.products.sls.{SlsGamingProductOrder, SlsProductOrderFactory}
+import domain.products.ukls.{UklsGamingProductOrder, UklsProductOrderFactory}
+import domain.products.uktbls.{UktblsGamingProductOrder, UktblsProductOrderFactory}
+import domain.products.xmasl.{XmaslGamingProductOrder, XmaslProductOrderFactory}
 import domain.products.{GamingProductOrder, ML24GamingProduct, ParticipationPools}
 import org.bouncycastle.tsp.TimeStampResponse
 import util.Utils.DirectoryFilter
 import play.api.libs.json._
 
-import scala.util.{Failure, Success, Try}
+import scala.collection.immutable.HashMap
+import scala.util.{Failure, Try}
 
 
 /**
@@ -43,6 +62,8 @@ trait PoolResourceProvider {
   def getOrderResultSignatureTimestamp(orderDirPath: Path): Try[OrderResultSignatureTimestamp]
 
   def getOrderSignature(orderDirPath: Path): Try[OrderSignature]
+
+  def getOrderMetadata(getParent: Path): Try[OrderMetadata]
 
   def getPoolDigestTimestamp(poolDirPath: Path): Try[PoolDigestTimestamp]
 
@@ -66,11 +87,63 @@ object PoolResourceProvider {
     **/
   trait ProductOrderFactory {
 
-    def isApplicableFor(productURI: URI): Boolean
-
     def create(productURI: URI, orderData: JsObject, docPath: Path): Try[GamingProductOrder]
 
   }
+
+  
+  abstract class ProductOrderFactoryAI[B, P, O <: GamingProductOrder] extends ProductOrderFactory {
+
+    /** Intermediate object for reading values of a `ParticipationPoolsMultiplyDays` */
+    protected case class ParticipationPoolsMultipleDaysData(firstDate: LocalDate, drawCount: Int, drawDays: Set[DayOfWeek])
+
+    /** Intermediate object for reading values of a `ParticipationPools` */
+    protected case class ParticipationPoolsSingleDayData(firstDate: LocalDate, drawCount: Int)
+    
+    implicit val weekdaysReads = new Reads[Set[DayOfWeek]]{
+      override def reads(json: JsValue): JsResult[Set[DayOfWeek]] = {
+        JsSuccess(
+          json.as[JsArray].value.map(_.as[String]).map(Utils.dayOfWeekFromString(_).get).toSet
+        )
+      }
+    }
+    
+    def create(productURI: URI, orderData: JsObject, docPath: Path): Try[GamingProductOrder] = {
+      Try {
+        val bets = parseBets((orderData \ "bets").as[JsArray].value.asInstanceOf[Seq[JsObject]])
+        val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
+        val variant = (orderData \ "variant").toOption.map(_.as[String])
+        createOrder(bets, partPools, variant, orderData).asInstanceOf[GamingProductOrder]
+      }
+    }
+    
+    protected def createOrder(bets: Seq[B], pools: P, variant: Option[String], json: JsObject) : O
+    
+    protected def parseBets(bets: Seq[JsObject]): Seq[B]
+
+    protected def parseParticipationPools(pools: JsObject): P
+
+    /** Facilitates creation of concrete `ParticipationPoolsMultiplyDaysValues`-instances by using an intermediate data object.*/
+    protected def fromIntermediateMultiDayPoolsData(pools: JsObject)( factoryFnct: ParticipationPoolsMultipleDaysData => P) : P = {
+      val intermediate = ParticipationPoolsMultipleDaysData(
+        firstDate = (pools \ "first-date").as[LocalDate],
+        drawDays = (pools \ "draw-days").as[Set[DayOfWeek]],
+        drawCount = (pools \ "draw-count").as[Int]
+      )
+      factoryFnct(intermediate)
+    }
+
+    /** Facilitates creation of concrete `ParticipationPools`-instances by using an intermediate data object.*/
+    protected def fromIntermediateSingleDayPoolsData(pools: JsObject)( factoryFnct: ParticipationPoolsSingleDayData => P) : P = {
+      val intermediate = ParticipationPoolsSingleDayData(
+        firstDate = (pools \ "first-date").as[LocalDate],
+        drawCount = (pools \ "draw-count").as[Int]
+      )
+      factoryFnct(intermediate)
+    }
+    
+  }
+  
 
   object ProductOrderFactory {
 
@@ -78,13 +151,30 @@ object PoolResourceProvider {
       * Delivers a `ProductOrderFactory` which is capable to create `ProductOrder`s for all known `GamingProductOrder`s.
       **/
     def allProductsOrderFactory: ProductOrderFactory = new CompositeProductOrderFactory(
-      Seq(
-        new EjsProductOrderFactory,
-        new EmsProductOrderFactory,
-        new GlsProductOrderFactory,
-        new GlsSProductOrderFactory,
-        new S6ProductOrderFactory,
-        new S77ProductOrderFactory
+      HashMap(
+        AmlsGamingProductOrder.productURI -> new AmlsProductOrderFactory,
+        AolsGamingProductOrder.productURI -> new AolsProductOrderFactory,
+        AplsGamingProductOrder.productURI -> new AplsProductOrderFactory,
+        AslsGamingProductOrder.productURI -> new AslsProductOrderFactory,
+        AwlsGamingProductOrder.productURI -> new AwlsProductOrderFactory,
+        EjsGamingProductOrder.productURI -> new EjsProductOrderFactory,
+        EmsGamingProductOrder.productURI -> new EmsProductOrderFactory,
+        EmsPlusGamingProductOrder.productURI -> new EmsPlusProductOrderFactory,
+        FlsGamingProductOrder.productURI -> new FlsProductOrderFactory,
+        GlsGamingProductOrder.productURI -> new GlsProductOrderFactory,
+        GlsSGamingProductOrder.productURI -> new GlsSProductOrderFactory,
+        IrishRaffleGamingProductOrder.productURI -> new IrishRaffleProductOrderFactory,
+        IrlsGamingProductOrder.productURI -> new IrlsProductOrderFactory,
+        IrlsP1GamingProductOrder.productURI -> new IrlsP1ProductOrderFactory,
+        IrlsP2GamingProductOrder.productURI -> new IrlsP2ProductOrderFactory,
+        PlsGamingProductOrder.productURI -> new PlsProductOrderFactory,
+        Plus5GamingProductOrder.productURI -> new Plus5ProductOrderFactory,
+        S6GamingProductOrder.productURI -> new S6ProductOrderFactory,
+        S77GamingProductOrder.productURI -> new S77ProductOrderFactory,
+        SlsGamingProductOrder.productURI -> new SlsProductOrderFactory,
+        UklsGamingProductOrder.productURI -> new UklsProductOrderFactory,
+        UktblsGamingProductOrder.productURI -> new UktblsProductOrderFactory,
+        XmaslGamingProductOrder.productURI -> new XmaslProductOrderFactory
       ))
   }
 
@@ -93,13 +183,10 @@ object PoolResourceProvider {
 
 class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = ProductOrderFactory.allProductsOrderFactory) extends PoolResourceProvider {
 
-  protected def getInputStream(filePath: Path): Try[InputStream] = {
-    val resourceName = filePath.getFileName.toString
-    Utils.isFileUnreadable(filePath.toFile) match {
-      case Some(error) => Failure(new Exception(error))
-      case _ => Success(new FileInputStream(filePath.toFile))
-    }
-  }
+  /**
+    * Intended to be overridden in tests (e.g. to simulate missing files)
+    * */
+  protected def getInputStream(filePath: Path): Try[InputStream] = Utils.getInputStream(filePath)
 
   override def getPoolMetadata(poolDirPath: Path): Try[PoolMetadata] = {
     val filePath = poolDirPath.resolve(Filenames.Metadata)
@@ -118,7 +205,7 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
           case _ =>
             val data = (node \ "participation-pool-digest" \ "base64").as[String].getBytes(StandardCharsets.UTF_8)
             val algorithm = (node \ "participation-pool-digest" \ "algorithm").as[String]
-            Some(PoolMetadata.PoolDigest(base64=data, algorithm=algorithm))
+            Some(PoolMetadata.PoolDigest(base64 = data, algorithm = algorithm))
         }
       }
 
@@ -200,7 +287,9 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     val filePath = orderDirPath.resolve(Filenames.OrderResultSignatureTimestamp)
     getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { base64data =>
       val data = Base64.getDecoder.decode(base64data.toArray)
-      val tsResponse = Try{new TimeStampResponse(data)}
+      val tsResponse = Try {
+        new TimeStampResponse(data)
+      }
 
       OrderResultSignatureTimestamp(value = new String(base64data.toArray, StandardCharsets.UTF_8),
         timeStampResponse = tsResponse,
@@ -223,12 +312,35 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     }
   }
 
+  override def getOrderMetadata(orderDirPath: Path): Try[OrderMetadata] = {
+    getOrderMetadataForFilePath(orderDirPath.resolve(Filenames.OrderMetadata))
+  }
+
+  def getOrderMetadataForFilePath(filePath: Path): Try[OrderMetadata] = {
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+      val node = Json.parse(data.toArray)
+      val jsonHedgingData = (node \ "hedging-data").as[JsObject]
+
+      val hedgingDataPerProduct: Map[GamingProductId, Seq[DrawHedgingData]] = jsonHedgingData.value.iterator.map {
+        case (productURI, jsonProductOrderHedgingData) =>
+          val productId = gamingProductIdFromURI(new URI(productURI))
+          val drawHedgingData = jsonProductOrderHedgingData.as[JsObject].fields.map { case (poolId, drawHedgingData) =>
+            val hedgingChannel: Option[String] = (drawHedgingData \ "hedging-channel").toOption.map(_.as[String])
+            val (_, drawDate) = ParticipationPools.parseParticipationPoolId(poolId)
+            DrawHedgingData(poolId = poolId, drawDate, hedgingChannel = hedgingChannel)
+          }
+          (productId, drawHedgingData)
+      }.toMap
+      OrderMetadata(OrderHedgingData(hedgingDataPerProduct), filePath, data)
+    }
+  }
+
   override def getPoolDigestTimestamp(poolDirPath: Path): Try[PoolDigestTimestamp] = {
     val filePath = poolDirPath.resolve(Filenames.PoolDigestTimestamp)
-      getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
-        PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
-          docPath = poolDirPath.resolve(Filenames.PoolDigestTimestamp), rawData = data)
-      }
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
+      PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
+        docPath = poolDirPath.resolve(Filenames.PoolDigestTimestamp), rawData = data)
+    }
   }
 
   override def getOrderDirPaths(poolLocation: Path): Try[IndexedSeq[Path]] = {
@@ -238,8 +350,8 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
     }
   }
 
-  override def getOrderDocPaths(orderDirPath: Path) : Try[IndexedSeq[Path]] = {
-    Try{
+  override def getOrderDocPaths(orderDirPath: Path): Try[IndexedSeq[Path]] = {
+    Try {
       orderDirPath.toFile.listFiles().map(_.toPath)
     }
   }
@@ -248,13 +360,11 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
 
 /**
   * Combines several `ProductOrderFactory` instances to allow the processing of multi-product orders.
-  * */
-class CompositeProductOrderFactory(productOrderFactories: Seq[ProductOrderFactory]) extends ProductOrderFactory {
-
-  override def isApplicableFor(productURI: URI): Boolean = productOrderFactories.exists(_.isApplicableFor(productURI))
+  **/
+class CompositeProductOrderFactory(productOrderFactories: Map[URI, ProductOrderFactory]) extends ProductOrderFactory {
 
   def create(productURI: URI, orderData: JsObject, docPath: Path): Try[GamingProductOrder] = {
-    productOrderFactories.find(factory => factory.isApplicableFor(productURI)) match {
+    productOrderFactories.get(productURI) match {
       case Some(factory) =>
         Try {
           factory.create(productURI, orderData, docPath).get

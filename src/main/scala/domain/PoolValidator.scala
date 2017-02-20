@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import _root_.util.Task.CancellableSupplierAI
 import _root_.util.{Task, TaskImpl}
-import com.typesafe.scalalogging.Logger
 import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.{Filenames, PRType}
 import domain.PoolValidator._
@@ -197,7 +196,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
                         algorithmMapper : SignatureAlgorithmMapper) extends PoolValidator {
 
 
-  private val logger = Logger(LoggerFactory.getLogger(this.getClass))
+  private val logger = LoggerFactory.getLogger(getClass)
 
   override def setCredentialsProvider(provider: CredentialsProvider): this.type = {
     this.credentialsProvider = provider

@@ -9,6 +9,20 @@
     "creation-date": "2017-02-05T13:22:47.123Z"
   },
   "gaming-product-orders": {
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/c4ls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "cash-ball": 1
+      }, {
+        "numbers": [2, 3, 4, 5, 6],
+        "cash-ball": 2
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-10",
+        "draw-count": 1,
+        "draw-days": ["THURSDAY"]
+      }
+    },
     "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ejs": {
       "bets": [{
         "numbers": [1, 2, 3, 4, 5],
@@ -68,15 +82,6 @@
       }, {
         "numbers": [2, 4, 6, 29, 32],
         "starnumbers": [2, 10]
-      }, {
-        "numbers": [11, 12, 13, 14, 15],
-        "starnumbers": [1, 11]
-      }, {
-        "numbers": [12, 14, 16, 29, 32],
-        "starnumbers": [2, 10]
-      }, {
-        "numbers": [21, 22, 23, 24, 25],
-        "starnumbers": [1, 2]
       }],
       "participation-pools": {
         "first-date": "2017-02-07",
@@ -86,12 +91,6 @@
     },
     "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/emsp": {
       "bets": [{
-        "numbers": [1, 2, 3, 4, 5]
-      }, {
-        "numbers": [2, 4, 6, 29, 32]
-      }, {
-        "numbers": [11, 12, 13, 14, 15]
-      }, {
         "numbers": [12, 14, 16, 29, 32]
       }, {
         "numbers": [21, 22, 23, 24, 25]
@@ -155,6 +154,33 @@
         "draw-days": ["WEDNESDAY"]
       }
     },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/keno": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "stake": 1
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-08",
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/mmls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "mega-ball": 1
+      }, {
+        "numbers": [6, 7, 8, 9, 10],
+        "mega-ball": 2
+      }, {
+        "numbers": [11, 12, 13, 14, 15],
+        "mega-ball": 3
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-08",
+        "draw-count": 1,
+        "draw-days": ["TUESDAY"]
+      }
+    },
     "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ukls": {
       "bets": [{
         "numbers": [8, 1, 9, 2, 7, 4]
@@ -175,6 +201,20 @@
       }],
       "participation-pools": {
         "first-date": "2017-02-08",
+        "draw-count": 1,
+        "draw-days": ["WEDNESDAY"]
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/uspbls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "power-ball": 1
+      }, {
+        "numbers": [6, 7, 8, 9, 10],
+        "power-ball": 2
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-09",
         "draw-count": 1,
         "draw-days": ["WEDNESDAY"]
       }

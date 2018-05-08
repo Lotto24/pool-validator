@@ -2,16 +2,17 @@ package view
 
 
 import java.time.format.{DateTimeFormatter, FormatStyle}
+
 import javafx.beans.binding.Bindings
 import javafx.scene.control._
 import javafx.scene.layout._
-
 import domain.products.GamingProduct.gamingProductIdFromURI
 import domain.products.amls.{AmlsBet, AmlsGamingProductOrder, AmlsParticipationPools}
 import domain.products.aols.{AolsBet, AolsGamingProductOrder, AolsParticipationPools}
 import domain.products.apls.{AplsBet, AplsGamingProductOrder, AplsParticipationPools}
 import domain.products.asls.{AslsBet, AslsGamingProductOrder, AslsParticipationPools}
 import domain.products.awls.{AwlsBet, AwlsGamingProductOrder, AwlsParticipationPools}
+import domain.products.c4ls.{C4lsBet, C4lsGamingProductOrder, C4lsParticipationPools}
 import domain.products.ejs.{EjsBet, EjsGamingProductOrder, EjsParticipationPools}
 import domain.products.ems.{EmsBet, EmsGamingProductOrder, EmsParticipationPools}
 import domain.products.emsplus.{EmsPlusBet, EmsPlusGamingProductOrder, EmsPlusParticipationPools}
@@ -22,6 +23,8 @@ import domain.products.irishraffle.{IrishRaffleBet, IrishRaffleGamingProductOrde
 import domain.products.irls.p1.{IrlsP1GamingProductOrder, IrlsP1ParticipationPools}
 import domain.products.irls.p2.{IrlsP2GamingProductOrder, IrlsP2ParticipationPools}
 import domain.products.irls.{IrlsBet, IrlsGamingProductOrder, IrlsParticipationPools}
+import domain.products.keno.{KenoBet, KenoGamingProductOrder, KenoParticipationPools}
+import domain.products.mmls.{MmlsBet, MmlsGamingProductOrder, MmlsParticipationPools}
 import domain.products.pls.{PlsBet, PlsGamingProductOrder, PlsParticipationPools}
 import domain.products.plus5.{Plus5Bet, Plus5GamingProductOrder, Plus5ParticipationPools}
 import domain.products.s6.{S6Bet, S6GamingProductOrder, S6ParticipationPools}
@@ -29,6 +32,7 @@ import domain.products.s77.{S77Bet, S77GamingProductOrder, S77ParticipationPools
 import domain.products.sls.{SlsBet, SlsGamingProductOrder, SlsParticipationPools}
 import domain.products.ukls.{UklsBet, UklsGamingProductOrder, UklsParticipationPools}
 import domain.products.uktbls.{UktblsBet, UktblsGamingProductOrder, UktblsParticipationPools}
+import domain.products.uspbls.{UspblsBet, UspblsGamingProductOrder, UspblsParticipationPools}
 import domain.products.xmasl.{XmaslBet, XmaslGamingProductOrder, XmaslParticipationPools}
 import domain.products.{Bet, GamingProductOrder, ParticipationPools, ParticipationPoolsMultiplyDays}
 import play.api.libs.json.Json
@@ -223,6 +227,14 @@ object OrderPaneFactory {
         Seq(BetNumbersSpec(name = "Numbers", cssClass = "numbers", _.numbers)), productCssClass = "awls"
       )
     },
+    classOf[C4lsGamingProductOrder] -> { () => 
+      new GenericOrderPane[C4lsGamingProductOrder, C4lsParticipationPools, C4lsBet](
+        Seq(
+          BetNumbersSpec(name = "Numbers", cssClass = "numbers", _.numbers),
+          BetNumbersSpec(name = "Cashball", cssClass = "extranumbers", x => Seq(x.cashBall))
+        ), productCssClass = "c4ls"
+      )
+    },    
     classOf[EjsGamingProductOrder] -> { () =>
       new GenericOrderPane[EjsGamingProductOrder, EjsParticipationPools, EjsBet](
         Seq(
@@ -282,6 +294,22 @@ object OrderPaneFactory {
         Seq(BetNumbersSpec(name="Numbers", cssClass="numbers", _.numbers)), productCssClass = "irls_p2"
       )
     },
+    classOf[KenoGamingProductOrder] -> { () =>
+      new GenericOrderPane[KenoGamingProductOrder, KenoParticipationPools, KenoBet](
+        Seq(
+          BetNumbersSpec(name="Numbers", cssClass="numbers", _.numbers),
+          BetNumbersSpec(name="Stake", cssClass="extranumbers", x => Seq(x.stake))
+        ), productCssClass = "keno"
+      )
+    },    
+    classOf[MmlsGamingProductOrder] -> { () =>
+      new GenericOrderPane[MmlsGamingProductOrder, MmlsParticipationPools, MmlsBet](
+        Seq(
+          BetNumbersSpec(name="Numbers", cssClass="numbers", _.numbers),
+          BetNumbersSpec(name="Megaball", cssClass="extranumbers", x => Seq(x.megaBall))
+        ), productCssClass = "mmls"
+      )
+    },    
     classOf[PlsGamingProductOrder] -> { () =>
       new GenericOrderPane[PlsGamingProductOrder, PlsParticipationPools, PlsBet](
         Seq(BetNumbersSpec(name="Numbers", cssClass="numbers", _.numbers)), productCssClass = "pls"
@@ -318,6 +346,14 @@ object OrderPaneFactory {
           BetNumbersSpec(name = "Numbers", cssClass = "numbers", _.numbers),
           BetNumbersSpec(name = "Thunderball", cssClass = "extranumbers", x => Seq(x.thunderball))
         ), productCssClass = "uktbls"
+      )
+    },
+    classOf[UspblsGamingProductOrder] -> { () =>
+      new GenericOrderPane[UspblsGamingProductOrder, UspblsParticipationPools, UspblsBet](
+        Seq(
+          BetNumbersSpec(name = "Numbers", cssClass = "numbers", _.numbers),
+          BetNumbersSpec(name = "Powerball", cssClass = "extranumbers", x => Seq(x.powerBall))
+        ), productCssClass = "uspbls"
       )
     },
     classOf[XmaslGamingProductOrder] -> { () =>

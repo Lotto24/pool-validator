@@ -1,11 +1,14 @@
 package domain.products
 
+import enumeratum.Enum
+import enumeratum.EnumEntry
 import java.net.URI
 
 import domain.products.GamingProduct.GamingProductId
 
+import scala.collection.immutable
 
-sealed trait ML24GamingProduct extends GamingProduct
+sealed trait ML24GamingProduct extends GamingProduct with EnumEntry
 
 
 trait GamingProduct {
@@ -17,7 +20,7 @@ trait GamingProduct {
 }
 
 
-object GamingProduct{
+object GamingProduct {
 
   final type GamingProductId = String
 
@@ -35,7 +38,7 @@ object GamingProduct{
 }
 
 
-object ML24GamingProduct {
+object ML24GamingProduct extends Enum[ML24GamingProduct] {
 
   object EJS extends ML24GamingProduct {
 
@@ -180,7 +183,28 @@ object ML24GamingProduct {
     override val lottery: PrimaryLottery = PrimaryLottery.Plus5
   }
 
-  val All = Vector[ML24GamingProduct](EJS, GLS, S6, S77, EMS, EMSPLUS, GLSS, IRLS, IRLSP1, IRLSP2, IRISHRAFFLE, UKLS, AOLS, APLS, ASLS, AMLS, AWLS, SLS,
-              UKTBLS, FLS, PLS, XMASL, PLUS5)
+  object KENO extends ML24GamingProduct {
+    override val id: GamingProductId = "keno"
+    override val lottery: PrimaryLottery = PrimaryLottery.Keno
+  }
+
+  object C4LS extends ML24GamingProduct {
+    override val id: GamingProductId = "c4ls"
+    override val lottery: PrimaryLottery = PrimaryLottery.Cash4Life
+  }
+
+  object USPBLS extends ML24GamingProduct {
+    override val id: GamingProductId = "uspbls"
+    override val lottery: PrimaryLottery = PrimaryLottery.UsPowerball
+  }
+
+  object MMLS extends ML24GamingProduct {
+    override val id: GamingProductId = "mmls"
+    override val lottery: PrimaryLottery = PrimaryLottery.MegaMillions
+  }
+
+  override lazy val values: immutable.IndexedSeq[ML24GamingProduct] = findValues
+  
+  val knownProductIds: Set[GamingProductId] = values.map(_.id).toSet
 
 }

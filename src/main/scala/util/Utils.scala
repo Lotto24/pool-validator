@@ -121,7 +121,8 @@ object Utils {
   def stringToOption(string:  String): Option[String] = if( (string == null) || string.isEmpty) None else Some(string)
 
   def dayOfWeekFromString(value: String) : Option[DayOfWeek] = {
-    dayOfWeekMap.get(value).orElse(dayOfWeekMap_full.get(value))
+    val valueUpperCase = value.toUpperCase
+    dayOfWeekMap.get(valueUpperCase).orElse(dayOfWeekMap_full.get(valueUpperCase))
   }
 
   def mkFailure[T](msg: String): Failure[T] = new Failure[T](new Exception(msg))

@@ -19,6 +19,7 @@ import domain.products.aols.{AolsGamingProductOrder, AolsProductOrderFactory}
 import domain.products.apls.{AplsGamingProductOrder, AplsProductOrderFactory}
 import domain.products.asls.{AslsGamingProductOrder, AslsProductOrderFactory}
 import domain.products.awls.{AwlsGamingProductOrder, AwlsProductOrderFactory}
+import domain.products.c4ls.{C4lsGamingProductOrder, C4lsProductOrderFactory}
 import domain.products.ejs.{EjsGamingProductOrder, EjsProductOrderFactory}
 import domain.products.ems.{EmsGamingProductOrder, EmsProductOrderFactory}
 import domain.products.emsplus.{EmsPlusGamingProductOrder, EmsPlusProductOrderFactory}
@@ -29,6 +30,8 @@ import domain.products.irishraffle.{IrishRaffleGamingProductOrder, IrishRafflePr
 import domain.products.irls.p1.{IrlsP1GamingProductOrder, IrlsP1ProductOrderFactory}
 import domain.products.irls.p2.{IrlsP2GamingProductOrder, IrlsP2ProductOrderFactory}
 import domain.products.irls.{IrlsGamingProductOrder, IrlsProductOrderFactory}
+import domain.products.keno.{KenoGamingProductOrder, KenoProductOrderFactory}
+import domain.products.mmls.{MmlsGamingProductOrder, MmlsProductOrderFactory}
 import domain.products.pls.{PlsGamingProductOrder, PlsProductOrderFactory}
 import domain.products.plus5.{Plus5GamingProductOrder, Plus5ProductOrderFactory}
 import domain.products.s6.{S6GamingProductOrder, S6ProductOrderFactory}
@@ -36,6 +39,7 @@ import domain.products.s77.{S77GamingProductOrder, S77ProductOrderFactory}
 import domain.products.sls.{SlsGamingProductOrder, SlsProductOrderFactory}
 import domain.products.ukls.{UklsGamingProductOrder, UklsProductOrderFactory}
 import domain.products.uktbls.{UktblsGamingProductOrder, UktblsProductOrderFactory}
+import domain.products.uspbls.{UspblsGamingProductOrder, UspblsProductOrderFactory}
 import domain.products.xmasl.{XmaslGamingProductOrder, XmaslProductOrderFactory}
 import domain.products.{GamingProductOrder, ML24GamingProduct, ParticipationPools}
 import org.bouncycastle.tsp.TimeStampResponse
@@ -43,7 +47,7 @@ import util.Utils.DirectoryFilter
 import play.api.libs.json._
 
 import scala.collection.immutable.HashMap
-import scala.util.{Failure, Try}
+import scala.util.{Failure, Success, Try}
 
 
 /**
@@ -102,9 +106,10 @@ object PoolResourceProvider {
     
     implicit val weekdaysReads = new Reads[Set[DayOfWeek]]{
       override def reads(json: JsValue): JsResult[Set[DayOfWeek]] = {
-        JsSuccess(
-          json.as[JsArray].value.map(_.as[String]).map(Utils.dayOfWeekFromString(_).get).toSet
-        )
+        Try(json.as[JsArray].value.map(_.as[String]).map(Utils.dayOfWeekFromString(_).get).toSet) match {
+          case Success(daysOfWeek) => JsSuccess(daysOfWeek)
+          case Failure(t) => JsError(t.getMessage)
+        }
       }
     }
     
@@ -157,6 +162,7 @@ object PoolResourceProvider {
         AplsGamingProductOrder.productURI -> new AplsProductOrderFactory,
         AslsGamingProductOrder.productURI -> new AslsProductOrderFactory,
         AwlsGamingProductOrder.productURI -> new AwlsProductOrderFactory,
+        C4lsGamingProductOrder.productURI -> new C4lsProductOrderFactory,
         EjsGamingProductOrder.productURI -> new EjsProductOrderFactory,
         EmsGamingProductOrder.productURI -> new EmsProductOrderFactory,
         EmsPlusGamingProductOrder.productURI -> new EmsPlusProductOrderFactory,
@@ -167,6 +173,8 @@ object PoolResourceProvider {
         IrlsGamingProductOrder.productURI -> new IrlsProductOrderFactory,
         IrlsP1GamingProductOrder.productURI -> new IrlsP1ProductOrderFactory,
         IrlsP2GamingProductOrder.productURI -> new IrlsP2ProductOrderFactory,
+        KenoGamingProductOrder.productURI -> new KenoProductOrderFactory,
+        MmlsGamingProductOrder.productURI -> new MmlsProductOrderFactory,        
         PlsGamingProductOrder.productURI -> new PlsProductOrderFactory,
         Plus5GamingProductOrder.productURI -> new Plus5ProductOrderFactory,
         S6GamingProductOrder.productURI -> new S6ProductOrderFactory,
@@ -174,6 +182,7 @@ object PoolResourceProvider {
         SlsGamingProductOrder.productURI -> new SlsProductOrderFactory,
         UklsGamingProductOrder.productURI -> new UklsProductOrderFactory,
         UktblsGamingProductOrder.productURI -> new UktblsProductOrderFactory,
+        UspblsGamingProductOrder.productURI -> new UspblsProductOrderFactory,
         XmaslGamingProductOrder.productURI -> new XmaslProductOrderFactory
       ))
   }
@@ -195,7 +204,7 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
       val productUri = new URI((node \ "gaming-product").as[String])
       val poolIdStr = (node \ "participation-pool-id").as[String]
       val (productId: GamingProductId, drawDate: LocalDate) = ParticipationPools.parseParticipationPoolId(poolIdStr)
-      if (!ML24GamingProduct.All.exists(_.id == productId))
+      if (!ML24GamingProduct.knownProductIds.contains(productId))
         throw new Exception(s"unexpected productId: $productId")
 
       val digestData: Option[PoolDigest] = {
@@ -223,28 +232,33 @@ class PoolResourceProviderImpl(productOrderFactory: ProductOrderFactory = Produc
   override def getOrder(orderDirPath: Path): Try[Order] = getOrderForFilePath(orderDirPath.resolve(Filenames.Order))
 
   def getOrderForFilePath(filePath: Path): Try[Order] = {
-    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).map { data =>
-      val node = Json.parse(data.toArray)
-      val metaData = Metadata(
-        retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String],
-        retailCustomer = (node \ "metadata" \ "retail-customer").as[String],
-        retailerOrderReference = (node \ "metadata" \ "retailer-order-reference").as[String],
-        creationDate = {
-          ZonedDateTime.parse((node \ "metadata" \ "creation-date").as[String], Metadata.CreationDateFormat)
-        }
-      )
-      val orders = (node \ "gaming-product-orders").as[JsObject]
-      val gamingProductOrders: Map[URI, GamingProductOrder] = orders.fields.map { field =>
-        val productURI: URI = new URI(field._1)
-        val lotteryProductOrder = productOrderFactory.create(productURI, field._2.as[JsObject], filePath).get
-        (productURI, lotteryProductOrder)
-      }.toMap
+    getInputStream(filePath).flatMap(is => Utils.getAsSeq(is, closeStream = true)).transform(
+      data => parseOrder(data, filePath),
+      throwable => Failure(throwable)  
+    )
+  }
 
-      assert(filePath.getNameCount >= 2, s"p.getNameCount[${filePath.getNameCount}] should be >= 2")
-      val directoryName = filePath.getName(filePath.getNameCount - 2).toString
-      Order(metaData = metaData, gamingProductOrders = gamingProductOrders,
-        docPath = filePath, directoryName = directoryName, rawData = data)
-    }
+  private[domain] def parseOrder(jsonBytes:  scala.IndexedSeq[Byte], filePath: Path): Try[Order] = Try {
+    val node = Json.parse(jsonBytes.toArray)
+    val metaData = Metadata(
+      retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String],
+      retailCustomer = (node \ "metadata" \ "retail-customer").as[String],
+      retailerOrderReference = (node \ "metadata" \ "retailer-order-reference").as[String],
+      creationDate = {
+        ZonedDateTime.parse((node \ "metadata" \ "creation-date").as[String], Metadata.CreationDateFormat)
+      }
+    )
+    val orders = (node \ "gaming-product-orders").as[JsObject]
+    val gamingProductOrders: Map[URI, GamingProductOrder] = orders.fields.map { field =>
+      val productURI: URI = new URI(field._1)
+      val lotteryProductOrder = productOrderFactory.create(productURI, field._2.as[JsObject], filePath).get
+      (productURI, lotteryProductOrder)
+    }.toMap
+
+    assert(filePath.getNameCount >= 2, s"p.getNameCount[${filePath.getNameCount}] should be >= 2")
+    val directoryName = filePath.getName(filePath.getNameCount - 2).toString
+    Order(metaData = metaData, gamingProductOrders = gamingProductOrders,
+      docPath = filePath, directoryName = directoryName, rawData = jsonBytes)    
   }
 
   override def getOrderResult(orderDirPath: Path): Try[OrderResult] = {

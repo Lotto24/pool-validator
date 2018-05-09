@@ -153,22 +153,19 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       withClue("order.gamingProductOrders.size")(o.gamingProductOrders.size shouldEqual ML24GamingProduct.values.size)
 
       checkProductOrder[AmlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(AMLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(AmlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)), AmlsBet(numbers = Seq(2, 3, 4, 5, 6, 7)))
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(AmlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
         productOrder.participationPools shouldBe AmlsParticipationPools(firstDate = LocalDate.of(2017, 2, 13), drawCount = 1)
       }
 
       checkProductOrder[AolsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(AOLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(
-          AolsBet(numbers = Seq(1, 2, 3, 4, 5, 6, 7)),
-          AolsBet(numbers = Seq(2, 3, 4, 5, 6, 7, 8))
-        )
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(AolsBet(numbers = Seq(2, 3, 4, 5, 6, 7, 8)))
         productOrder.participationPools shouldBe AolsParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawCount = 1)
       }
 
       checkProductOrder[AplsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(APLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           AplsBet(numbers = Seq(1, 2, 3, 4, 5, 6), powerball = 2),
           AplsBet(numbers = Seq(2, 3, 4, 5, 6, 7), powerball = 3)
@@ -177,7 +174,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
       
       checkProductOrder[AslsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(ASLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           AslsBet(numbers = Seq(1, 2, 3, 4, 5, 6)),
           AslsBet(numbers = Seq(2, 3, 4, 5, 6, 7))
@@ -186,11 +183,8 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[AwlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(AWLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(
-          AwlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)),
-          AwlsBet(numbers = Seq(2, 3, 4, 5, 6, 7))
-        )
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(AwlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
         productOrder.participationPools shouldBe AwlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawCount = 1)
       }
 
@@ -204,7 +198,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[EmsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(EMS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           EmsBet(numbers=Seq(1, 2, 3, 4, 5), starnumbers = Seq(1, 11)),
           EmsBet(numbers=Seq(2, 4, 6, 29, 32), starnumbers = Seq(2, 10))
@@ -213,16 +207,16 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
       
       checkProductOrder[EmsPlusGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(EMSPLUS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
-          EmsPlusBet(numbers = Seq(12, 14, 16, 29, 32)),
-          EmsPlusBet(numbers = Seq(21, 22, 23, 24, 25))
+          EmsPlusBet(numbers = Seq(1, 2, 3, 4, 5)),
+          EmsPlusBet(numbers = Seq(2, 4, 6, 29, 32))
         )
         productOrder.participationPools shouldBe EmsPlusParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawDays = Set(TUESDAY), drawCount = 1)
       }
 
       checkProductOrder[EjsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(EJS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           EjsBet(numbers = Seq(1, 2, 3, 4, 5), euroNumbers = Seq(1, 8)),
           EjsBet(numbers = Seq(2, 4, 6, 29, 32), euroNumbers = Seq(4, 5))
@@ -231,7 +225,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[FlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(FLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           FlsBet(numbers = Seq(1, 2, 3, 4, 5), chancenumber = 2),
           FlsBet(numbers = Seq(2, 3, 4, 5, 6), chancenumber = 3)
@@ -240,7 +234,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[GlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(GLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           GlsBet(numbers = Seq(1, 2, 3, 4, 5, 6), supernumber = 7, system = None),
           GlsBet(numbers = Seq(1, 2, 4, 6, 29, 32, 49), supernumber = 0, system = Some("full"))
@@ -249,7 +243,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[GlsSGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(GLSS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           GlsSBet(numbers = Seq(8, 1, 9, 2, 9, 4, 7)),
           GlsSBet(numbers = Seq(2, 5, 0, 7, 0, 8, 6))
@@ -258,19 +252,19 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[IrlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(IRLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
         productOrder.participationPools shouldBe IrlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
       }
 
       checkProductOrder[IrlsP1GamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(IRLSP1.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
         productOrder.participationPools shouldBe IrlsP1ParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
       }
 
       checkProductOrder[IrlsP2GamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(IRLSP2.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           IrlsBet(numbers = Seq(8, 1, 9, 2, 7, 4))
         )
@@ -278,7 +272,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[IrishRaffleGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(IRISHRAFFLE.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           IrishRaffleBet(numbers = Seq(1, 2, 3, 4)),
           IrishRaffleBet(numbers = Seq(0, 4, 6, 9))
@@ -305,16 +299,13 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[PlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(PLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(
-          PlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)),
-          PlsBet(numbers = Seq(2, 3, 4, 5, 6, 7))
-        )
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(PlsBet(numbers = Seq(1, 2, 3, 4, 5, 6)))
         productOrder.participationPools shouldBe PlsParticipationPools(firstDate = LocalDate.of(2017, 2, 7), drawDays = Set(TUESDAY), drawCount = 1)
       }
 
       checkProductOrder[Plus5GamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(PLUS5.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           Plus5Bet(numbers = Seq(1, 2, 3, 4, 5, 6, 7, 8, 9)),
           Plus5Bet(numbers = Seq(2, 3, 4, 5, 6, 7, 8, 9, 10))
@@ -323,7 +314,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[S6GamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(S6.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           S6Bet(numbers = Seq(0, 8, 1, 8, 3, 6)),
           S6Bet(numbers = Seq(3, 6, 2, 8, 1, 9))
@@ -332,7 +323,7 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[S77GamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(S77.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           S77Bet(numbers = Seq(7, 0, 8, 1, 8, 3, 6)),
           S77Bet(numbers = Seq(3, 6, 1, 8, 1, 9, 7))
@@ -341,19 +332,19 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
       
       checkProductOrder[SlsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(SLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(SlsBet(numbers = Seq(1, 2, 3, 4, 5, 6, 7)), SlsBet(numbers = Seq(2, 3, 4, 5, 6, 7, 8)))
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(SlsBet(numbers = Seq(1, 2, 3, 4, 5, 6, 7)))
         productOrder.participationPools shouldBe SlsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
       }
 
       checkProductOrder[UklsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(UKLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(UklsBet(numbers = Seq(8, 1, 9, 2, 7, 4)))
         productOrder.participationPools shouldBe UklsParticipationPools(firstDate = LocalDate.of(2017, 2, 8), drawDays = Set(WEDNESDAY), drawCount = 1)
       }
 
       checkProductOrder[UktblsGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(UKTBLS.id))){ productOrder =>
-        productOrder.variant shouldBe None
+        productOrder.variant shouldBe Some("variant_1")
         productOrder.bets shouldBe Seq(
           UktblsBet(numbers = Seq(1, 2, 3, 4, 5), thunderball = 10),
           UktblsBet(numbers = Seq(6, 7, 8, 9, 10), thunderball = 11)
@@ -368,8 +359,8 @@ class PoolResourceProviderSpec extends FeatureSpec with Matchers {
       }
 
       checkProductOrder[XmaslGamingProductOrder](o.gamingProductOrders(gamingProductIdToURI(XMASL.id))){ productOrder =>
-        productOrder.variant shouldBe None
-        productOrder.bets shouldBe Seq(XmaslBet(numbers = Seq(1, 2, 3, 4, 5)), XmaslBet(numbers = Seq(0, 4, 6, 5, 9)))
+        productOrder.variant shouldBe Some("variant_1")
+        productOrder.bets shouldBe Seq(XmaslBet(numbers = Seq(1, 2, 3, 4, 5)))
         productOrder.participationPools shouldBe XmaslParticipationPools(firstDate = LocalDate.of(2017, 12, 22))
       }
     }

@@ -2,27 +2,24 @@ package view
 
 import java.io.File
 import java.util.Comparator
+
 import javafx.collections.FXCollections
 import javafx.collections.transformation.SortedList
 import javafx.scene.control._
 import javafx.scene.layout._
 import javafx.stage.FileChooser.ExtensionFilter
 import javafx.util.Callback
-
-import util.Utils
-import Utils.UIValue
 import model.ApplicationSettings
 import model.ApplicationSettings._
 import org.slf4j.LoggerFactory
+import scalafx.Includes._
 import util.Utils
+import util.Utils.{UIValue, stringToOption}
 import view.CssClass.Color
 import view.JfxImplicits._
 import view.PublicKeyEditor.PublicKeyListItem
 import view.impl.StructureElements.{SectionSeparator, VSpacer}
 import view.impl.{ChooseViaDialog, ValidationErrorHint}
-import Utils.stringToOption
-
-import scalafx.Includes._
 
 
 /**

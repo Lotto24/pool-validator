@@ -10,10 +10,9 @@ import javafx.stage.FileChooser.ExtensionFilter
 import javafx.util.Callback
 
 import util.Utils
-import Utils.{ErrorMsg, UIValue}
+import Utils.UIValue
 import model.ApplicationSettings
 import model.ApplicationSettings._
-import org.apache.commons.lang.StringUtils
 import org.slf4j.LoggerFactory
 import util.Utils
 import view.CssClass.Color
@@ -80,11 +79,7 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
     tefCaCertFile.styleClass += "cacertfile"
 
     tefCaCertFile.text.onChange((_, _, newValue) => {
-      tefCaCertFile.tooltip = {
-        val t = new Tooltip()
-        t.text = newValue
-        t
-      }
+      tefCaCertFile.tooltip = new Tooltip(newValue)
     })
 
     tefArchiveExtractionDir.styleClass += "orderextractiondir"

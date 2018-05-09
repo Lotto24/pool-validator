@@ -1355,6 +1355,7 @@ object ApplicatonModelTestSetup {
   val defaultSettings: ApplicationSettings = ApplicationSettings(
     defaultCredentialsSpecs,
     archiveExtractionTarget = defaultOrderExtractionTarget,
+    validatePoolOnLoading = false,
     showUIDebugControls = false)
 
   val defaultArchiveFile: File = new File(new File(System.getProperty("user.dir")),

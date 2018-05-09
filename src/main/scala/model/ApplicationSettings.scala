@@ -9,6 +9,7 @@ import util.Utils.{ErrorMsg, UIValue}
 
 case class ApplicationSettings(credentialsSpecs: CredentialsConfig,
                                archiveExtractionTarget: UIValue[File],
+                               validatePoolOnLoading: Boolean,
                                showUIDebugControls: Boolean) {
 
   def errors: Seq[ErrorMsg] = archiveExtractionTarget.error.toSeq ++ credentialsSpecs.errors

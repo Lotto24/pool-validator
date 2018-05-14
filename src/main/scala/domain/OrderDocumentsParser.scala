@@ -102,7 +102,7 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
       (productURI, lotteryProductOrder)
     }.toMap
 
-    assert(filePath.getNameCount == 2, s"parseOrder(): provided path must have a length of 2 (path: '${filePath.getFileName}')")
+    assert(filePath.getNameCount >= 2, s"parseOrder(): provided path must have a length >= 2 (path: '${filePath.getFileName}')")
     val directoryName = filePath.getParent.getFileName.toString
     Order(metaData = metaData, gamingProductOrders = gamingProductOrders,
       docPath = filePath, orderId = directoryName, rawData = jsonBytes)

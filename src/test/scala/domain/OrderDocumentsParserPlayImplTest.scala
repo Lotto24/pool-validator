@@ -370,7 +370,7 @@ class OrderDocumentsParserPlayImplTest extends FunSpec with Assertions with Matc
       it("parsing of an order should fail with a too short resource path (length < 2)") {
         val orderFile = new File(workingDir, "src/test/resources/orderdocs/order/orderWithAllProducts.json")
         parser.parseOrder(getFileContent(orderFile), Paths.get("order")).failed.get
-          .getMessage should include("parseOrder(): provided path must have a length of 2")        
+          .getMessage should include("parseOrder(): provided path must have a length >= 2")        
       }
     }
 

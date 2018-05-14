@@ -2,7 +2,7 @@ package domain.products.glss
 
 import java.time.LocalDate
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 

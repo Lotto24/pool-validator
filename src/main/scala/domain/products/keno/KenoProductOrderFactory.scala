@@ -1,6 +1,6 @@
 package domain.products.keno
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class KenoProductOrderFactory extends ProductOrderFactoryAI[KenoBet, KenoParticipationPools, KenoGamingProductOrder]{

@@ -1,6 +1,6 @@
 package domain.products.c4ls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class C4lsProductOrderFactory extends ProductOrderFactoryAI[C4lsBet, C4lsParticipationPools, C4lsGamingProductOrder]{

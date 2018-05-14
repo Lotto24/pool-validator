@@ -1,6 +1,6 @@
 package domain.products.sls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class SlsProductOrderFactory extends ProductOrderFactoryAI[SlsBet, SlsParticipationPools, SlsGamingProductOrder]{

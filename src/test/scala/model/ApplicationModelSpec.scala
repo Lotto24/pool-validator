@@ -1,45 +1,52 @@
 package model
 
 import java.io.File
-import java.time.{LocalDate, LocalTime, ZoneOffset, ZonedDateTime}
-import java.util.concurrent.Executors
+import java.nio.file.{Path, Paths}
+import java.time.{Duration => _, _}
 
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
 import domain.Mockups.RunLaterExecutor4Tests.Mode
-import domain.Mockups.{ApplicationSettingsManagerMockup, PoolValidatorMockup, RunLaterExecutor4Tests}
-import domain.PoolValidator._
+import domain.Mockups.{ApplicationSettingsManagerMockup, HappyPathPoolValidatorMock, PoolValidatorMockup, RunLaterExecutor4Tests}
+import domain.OrderCheck.{OrderAcceptedCheck, PoolParticipationCheck}
+import domain.PoolResource.Filenames
+import domain.PoolValidator.{CheckFailure, CheckOk, OrderValidationResult}
 import domain._
 import domain.products.ML24GamingProduct.EJS
-import model.ApplicationModel._
+import model.ApplicationModel.{ValidationState, _}
 import model.ApplicationSettings._
+import monix.execution.Scheduler.Implicits.global
+import monix.execution.{Scheduler => MonixScheduler}
+import org.apache.commons.io.FilenameUtils
 import org.scalatest._
-import org.scalatest.concurrent.{PatienceConfiguration, ScalaFutures}
+import org.scalatest.concurrent.{Eventually, PatienceConfiguration, ScalaFutures}
 import org.slf4j.LoggerFactory
-import util.Utils
-import util.Utils.{DirectoryFilter, ErrorMsg, UIValue}
-
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
-import scala.reflect.{ClassTag, _}
 import scalafx.Includes._
+import util.Utils
+import util.Utils.{ErrorMsg, UIValue}
 
-/**
-  */
-class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with BeforeAndAfterAll with GivenWhenThen {
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
+import scala.reflect.{ClassTag, _}
 
 
-  val Setup = ApplicatonModelTestSetup
+case class PatienceConfigValues(timeout: Duration, interval: Duration)
 
+class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with BeforeAndAfterAll with GivenWhenThen with Eventually {
 
-  import ApplicatonModelTestSetup._
+  import ApplicatonModelTestEnv._
 
   initLogger()
+  
+  implicit val patienceConfigValues: PatienceConfigValues = PatienceConfigValues(timeout = 3.seconds, interval = 50.millis)
+  
+  override implicit val patienceConfig: PatienceConfig = PatienceConfig(patienceConfigValues.timeout, patienceConfigValues.interval)
+  
 
   /** Loan fixture method, needed in order to call `ApplicationModel.dispose()` after the test execution so that
     * temporary directories created by the model can be deleted.
     * */
-  def withTestSetup(setup: ApplicatonModelTestSetup)(testCode: (ApplicatonModelTestSetup, ApplicationModel) => Any): Unit = {
+  def withTestSetup(setup: ApplicatonModelTestEnv)(testCode: (ApplicatonModelTestEnv, ApplicationModel) => Any): Unit = {
     testCode(setup, setup.init().model)
     setup.runLaterExecutor.expectNoPendingJobs()
     setup.model.dispose()
@@ -48,29 +55,32 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
   describe("An ApplicationModel") {
     describe("instantiated with valid settings") {
       it("should be in the following initial state") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.expectModelStateCleared()
         }
       }
 
       it("should be in the described state when a valid pool archive is loaded") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
 
           model.validationStateProp.getValue shouldBe ValidationState.NotValidated
           model.validationViewStateProp.getValue shouldBe ValidationViewState.NoItemSelected
 
-          model.archiveDirProp.getValue.isDefined shouldBe true
+          model.poolSourceProp.getValue.isDefined shouldBe true
 
-          withClue("the model's total orders count should match the order-dir count of the loaded pool archive") {
-            val orderDirs = setup.poolResourceProvider.getOrderDirPaths(model.archiveDirProp.getValue.get.toPath).get
-            orderDirs.size should be > 0
-            model.navigatorContentRoot.getChildren.size shouldBe orderDirs.size
-            model.navigatorContentRoot.getChildren.size shouldBe model.getTotalOrdersCount
+          eventually {
+            withClue("the model's total orders count should match the order-dir count of the loaded pool archive") {
+              setup.runLaterExecutor.expectNoPendingJobs()
+              val ordersCount = setup.model.resourceProvider.get.getOrdersCount().get
+              ordersCount should be > 0
+              model.navigatorContentRoot.getChildren.size shouldBe ordersCount
+              model.navigatorContentRoot.getChildren.size shouldBe model.getTotalOrdersCount
+            }
           }
 
           model.getArchiveFileSelectorInitialDirectory shouldBe Some(defaultArchiveFile.getParentFile.toPath)
-          model.getInvalidOrdersCount shouldBe 0
+          model.validationStats.invalidOrdersCount shouldBe 0
           model.getSettings shouldBe defaultSettings
           model.orderDocDetailDataProp.getValue shouldBe None
           model.poolSourceProp.getValue shouldBe Some(PoolSourceArchive(defaultArchiveFile.toPath))
@@ -96,13 +106,13 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
       }
 
       it("should have single-order-validation enabled a single order is selected") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
 
 
-          val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-          info(s"orderDir:$orderDir")
-          val orderNavItem = model.findNavigatorItemFor(orderDir.toPath)
+          val orderId = setup.getNthOrderId(0)
+          info(s"orderId:$orderId")
+          val orderNavItem = model.findNavigatorItemFor(Paths.get(orderId))
           info(s"orderNavItem:$orderNavItem")
           orderNavItem.map(_.getClass) shouldEqual Some(classOf[OrderDirNavigatorItem])
 
@@ -118,64 +128,85 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
       }
 
       it("should have single-order-validation disabled when any other or no NavigatorItem is selected") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.Order))
+          val orderId = setup.getNthOrderId(0)
+
+          setup.selectNavigatorItem(Paths.get(orderId, Filenames.Order))
           model.validateSingleOrderEnabledProp.getValue shouldBe false
           model.validationViewStateProp.getValue shouldBe ValidationViewState.ItemNotYetValidated
 
-          setup.selectNavigatorItem(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0))
+          setup.selectNavigatorItem(Paths.get(orderId))
           model.validateSingleOrderEnabledProp.getValue shouldBe true
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResult))
+          setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResult))
           model.validateSingleOrderEnabledProp.getValue shouldBe false
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResultSignature))
+          setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResultSignature))
           model.validateSingleOrderEnabledProp.getValue shouldBe false
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResultSignatureTimestamp))
+          setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResultSignatureTimestamp))
           model.validateSingleOrderEnabledProp.getValue shouldBe false
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderSignature))
+          setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResultSignature))
           model.validateSingleOrderEnabledProp.getValue shouldBe false
 
-          setup.selectNavigatorItem(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(1))
+          setup.selectNavigatorItem(Paths.get(orderId))
           model.validateSingleOrderEnabledProp.getValue shouldBe true
         }
       }
 
       it("should show have detail-data corresponding to the selected NavigatorItem") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.Order))
-          setup.expectDetailDataType(Some(classOf[OrderDocDetailData[_]]))
+          setup.getNthOrderId(0) should not be setup.getNthOrderId(1)
 
-          setup.selectNavigatorItem(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0))
-          setup.expectDetailDataType(Some(classOf[OrderDirectoryDetailData]))
+          for (orderIndex <- 0 to 3) {
+            val orderId = setup.getNthOrderId(orderIndex)
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResult))
-          setup.expectDetailDataType(Some(classOf[OrderDocDetailData[_]]))
+            setup.selectNavigatorItem(Paths.get(orderId, Filenames.Order))
+            setup.withExpectedDetailData[OrderDocDetailData[_]] { case OrderDocDetailData(doc: Order) =>
+              doc.orderId shouldBe orderId
+              doc.docPath.toString should endWith(Paths.get(orderId, Filenames.Order).toString)
+            }
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResultSignature))
-          setup.expectDetailDataType(Some(classOf[OrderDocDetailData[_]]))
+            setup.selectNavigatorItem(Paths.get(orderId))
+            setup.withExpectedDetailData[OrderDirectoryDetailData] { detailData =>
+              detailData.orderId shouldBe orderId
+            }
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderResultSignatureTimestamp))
-          setup.expectDetailDataType(Some(classOf[OrderDocDetailData[_]]))
+            setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResult))
+            setup.withExpectedDetailData[OrderDocDetailData[_]] { case OrderDocDetailData(doc: OrderResult) =>
+              doc.docPath.toString should endWith(Paths.get(orderId, Filenames.OrderResult).toString)
+            }
 
-          setup.selectNavigatorItem(new File(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0), PoolResource.Filenames.OrderSignature))
-          setup.expectDetailDataType(Some(classOf[OrderDocDetailData[_]]))
+            setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResultSignature))
+            setup.withExpectedDetailData[OrderDocDetailData[_]] { case OrderDocDetailData(doc: OrderResultSignature) =>
+              doc.docPath.toString should endWith(Paths.get(orderId, Filenames.OrderResultSignature).toString)
+            }
 
-          setup.selectNavigatorItem(model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(1))
-          setup.expectDetailDataType(Some(classOf[OrderDirectoryDetailData]))
+            setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderResultSignatureTimestamp))
+            setup.withExpectedDetailData[OrderDocDetailData[_]] { case OrderDocDetailData(doc: OrderResultSignatureTimestamp) =>
+              doc.docPath.toString should endWith(Paths.get(orderId, Filenames.OrderResultSignatureTimestamp).toString)
+            }
+
+            setup.selectNavigatorItem(Paths.get(orderId, Filenames.OrderSignature))
+            setup.withExpectedDetailData[OrderDocDetailData[_]] { case OrderDocDetailData(doc: OrderSignature) =>
+              doc.docPath.toString should endWith(Paths.get(orderId, Filenames.OrderSignature).toString)
+            }
+
+            setup.selectNavigatorItem(Paths.get(orderId))
+            setup.expectDetailDataType(Some(classOf[OrderDirectoryDetailData]))
+          }
         }
       }
     }
 
     it("should update the archive-detail-data with betsCount-per-product-infos when the archive is selected") {
-      withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+      withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
         setup.loadPoolArchive_blocking(defaultArchiveFile)
-        setup.selectNavigatorItem(model.archiveDirProp.value.get)
+        setup.selectNavigatorItem(Paths.get(""))
         setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
 
         setup.runLaterExecutor.executeAll()
@@ -184,7 +215,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
         val orderDirNavItems = model.navigatorContentRoot.getChildren.map(_.getValue.asInstanceOf[OrderDirNavigatorItem])
 
         withClue(s"all OrderDirNavigatorItems should hold productInfos now\n${orderDirNavItems.mkString("\n")}") {
-          orderDirNavItems.forall(_.productInfos != null) shouldBe true
+          orderDirNavItems.forall(_.productInfos != None) shouldBe true
         }
 
         setup.withExpectedDetailData[ArchiveDetailData] { archiveDetailData =>
@@ -204,7 +235,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
         ))
 
         withTestSetup(
-          new ApplicatonModelTestSetup().withFailOnErrorMsg(false).withInitModel(false).withMockSettings(
+          new ApplicatonModelTestEnv().withFailOnErrorMsg(false).withInitModel(false).withMockSettings(
             defaultSettings.copy(
               credentialsSpecs = credSpecs_mod
             )
@@ -233,7 +264,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
             file = UIValue(Some(operatorPubKeyFile)), description = Some("CA-certificate"))
         ))
 
-        withTestSetup(new ApplicatonModelTestSetup().withFailOnErrorMsg(false).withMockSettings(
+        withTestSetup(new ApplicatonModelTestEnv().withFailOnErrorMsg(false).withMockSettings(
           defaultSettings.copy(credentialsSpecs = credSpecs_mod
           )).withInitModel(false)) { (setup, model) =>
           var errorsCollector = Seq.empty[ErrorMsg]
@@ -253,7 +284,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
       it("publish an error message") {
 
         withTestSetup(
-          new ApplicatonModelTestSetup()
+          new ApplicatonModelTestEnv()
             .withFailOnErrorMsg(false).withInitModel(false)
             .withMockSettings(defaultSettings.copy(
               archiveExtractionTarget = UIValue(Some(new File("non-existing-directory")))
@@ -281,36 +312,39 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
     describe("when a single valid order is validated") {
 
       it("the state transition should be as follows") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
           model.validationStateProp.getValue shouldBe ValidationState.NotValidated
 
-          val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
+          val orderId = setup.getNthOrderId(0)
 
           model.validationViewItemsProp.value.isEmpty shouldBe true
           model.validateSingleOrderEnabledProp.value shouldBe false
 
-          setup.selectNavigatorItem(orderDir)
+          setup.selectNavigatorItem(Paths.get(orderId))
 
           model.validateSingleOrderEnabledProp.value shouldBe true
 
-          model.findNavigatorItemFor(orderDir.toPath) match {
-            case Some(navItem) =>
+          model.findNavigatorItemFor(Paths.get(orderId)) match {
+            case Some(navItem: OrderDirNavigatorItem) =>
               navItem.validationResults.isEmpty shouldBe true
               model.validateSingleOrder(navItem)
             case _ => fail("no NavigatorItem found!")
           }
 
-          model.validationViewStateProp.getValue shouldBe ValidationViewState.ValidationResultsAvailable
+          eventually {
+            setup.runLaterExecutor.executeAll()
+            model.validationViewStateProp.getValue shouldBe ValidationViewState.ValidationResultsAvailable
+          }
 
           setup.expectNoInvalidOrders()
 
-          model.getInvalidOrdersCount shouldBe 0
-          model.getValidatedOrdersCount shouldBe 1
+          model.validationStats.invalidOrdersCount shouldBe 0
+          model.validationStats.validatedOrdersCount shouldBe 1
           model.validationStateProp.getValue shouldBe ValidationState.PartiallyValidated
 
           info("the selected NavigatorItem should be updated with the validation result")
-          model.findNavigatorItemFor(orderDir.toPath) match {
+          model.findNavigatorItemFor(Paths.get(orderId)) match {
             case Some(navItem) =>
               withClue(s"${navItem.validationResults.mkString(",")}")(navItem.validationResults.isEmpty shouldBe false)
               navItem.validationResults.forall(_.isOk) shouldBe true
@@ -321,57 +355,65 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
           withClue("the archive-navigator-item should not be completely validated") {
 
-            model.findNavigatorItemFor(model.archiveDirProp.getValue.get.toPath) match {
+            model.findNavigatorItemFor(Paths.get("")) match {
               case Some(archiveItem) =>
                 archiveItem.isValid shouldBe None
               case x => fail(s"unexpected: $x")
             }
 
             // select the archive
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
             model.poolSourceProp
           }
         }
       }
 
       it("validationState should be CompletelyValidated when all orders are validated after each other") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
 
           var validatedCount = 0
-          model.archiveDirProp.getValue.get.listFiles(DirectoryFilter).foreach { orderDir =>
+          setup.getAllOrderIds.foreach { orderId =>
             validatedCount += 1
-            setup.selectNavigatorItem(orderDir)
+            setup.selectNavigatorItem(Paths.get(orderId))
             model.validateSingleOrderEnabledProp.value shouldBe true
-            model.findNavigatorItemFor(orderDir.toPath) match {
-              case Some(navItem) =>
-                model.validateSingleOrder(navItem)
-              case _ => fail("no NavigatorItem found!")
+
+            eventually {
+              setup.runLaterExecutor.executeAll()
+              model.findNavigatorItemFor(Paths.get(orderId)) match {
+                case Some(navItem: OrderDirNavigatorItem) =>
+                  model.validateSingleOrder(navItem)
+                case _ => fail("no NavigatorItem found!")
+              }
+              setup.expectNoInvalidOrders()
+              model.validationStats.validatedOrdersCount shouldBe validatedCount
+              
             }
-
-            setup.expectNoInvalidOrders()
-
-            model.getValidatedOrdersCount shouldBe validatedCount
+            setup.runLaterExecutor.executeAll()
           }
           model.validationStateProp.getValue shouldBe ValidationState.CompletelyValidated
         }
       }
 
       it("..multiple times the getOrder-count methods should deliver consistent values") {
-        withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           setup.loadPoolArchive_blocking(defaultArchiveFile)
           model.getTotalOrdersCount should be > 0
           model.getTotalOrdersCount should be > 0
 
           setup.expectOrderCounts(totalOrders = 7, validatedOrders = 0, validOrders = 0, invalidOrders = 0)
 
-          val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-          val selectedItem = setup.selectNavigatorItem(orderDir).get
+          val orderId = setup.getNthOrderId(0)
+          val selectedItem = setup.selectNavigatorItem(Paths.get(orderId)).get.asInstanceOf[OrderDirNavigatorItem]
 
           for (i <- 1 to 5) {
-            model.validateSingleOrder(selectedItem)
-            setup.expectOrderCounts(totalOrders = 7, validatedOrders = 1, validOrders = 1, invalidOrders = 0)
+            eventually {
+              setup.runLaterExecutor.executeAll()
+              model.validateSingleOrder(selectedItem)
+              setup.expectOrderCounts(totalOrders = 7, validatedOrders = 1, validOrders = 1, invalidOrders = 0)
+            }
           }
+          setup.runLaterExecutor.executeAll()
         }
       }
 
@@ -394,19 +436,22 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
             val credSpecs_mod = defaultCredentialsSpecs.copy(certConfigItems = wrongRootCaCertSpecs,
               timestamperCertConfigItems = Seq(primaryTsaCertSpec, secondaryTsaCertSpec))
 
-            withTestSetup(new ApplicatonModelTestSetup()
+            withTestSetup(new ApplicatonModelTestEnv()
               .withMockSettings(defaultSettings.copy(credentialsSpecs = credSpecs_mod))) { (setup, model) =>
 
               setup.loadPoolArchive_blocking(defaultArchiveFile)
-              val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-              setup.selectNavigatorItem(orderDir)
-              model.findNavigatorItemFor(orderDir.toPath) match {
-                case Some(navItem) =>
+              val orderId = setup.getNthOrderId(0)
+              setup.selectNavigatorItem(Paths.get(orderId))
+              model.findNavigatorItemFor(Paths.get(orderId)) match {
+                case Some(navItem: OrderDirNavigatorItem) =>
                   model.validateSingleOrder(navItem)
                 case _ => fail("no NavigatorItem found!")
               }
-              model.validationViewStateProp.getValue shouldBe ValidationViewState.ValidationResultsAvailable
-              setup.expectNoInvalidOrders()
+              eventually {
+                setup.runLaterExecutor.executeAll()                
+                model.validationViewStateProp.getValue shouldBe ValidationViewState.ValidationResultsAvailable
+                setup.expectNoInvalidOrders()
+              }
             }
           }
         }
@@ -418,19 +463,15 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
     describe("when a whole valid archive is validated") {
       describe("with no NavigatorItem selected") {
         it("the state transition should be as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
-            model.getInvalidOrdersCount shouldBe 0
-            model.getValidatedOrdersCount shouldBe 0
+            model.validationStats.invalidOrdersCount shouldBe 0
+            model.validationStats.validatedOrdersCount shouldBe 0
             model.getTotalOrdersCount shouldBe 7
             model.validationViewItemsProp.value.isEmpty shouldBe true
             model.validationStateProp.getValue shouldBe ValidationState.NotValidated
-            val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-
             setup.validatePool_blocking()
-
             setup.expectCompletelyValidatedAllValid()
-
             model.validationViewItemsProp.value.isEmpty shouldBe true
           }
         }
@@ -438,7 +479,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
       describe("with the archive selected in the navigator") {
         it("the state transition should be as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
 
             setup.loadPoolArchive_blocking(defaultArchiveFile)
 
@@ -447,12 +488,12 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
             model.validateArchiveEnabledProp.value shouldBe true
             model.validateSingleOrderEnabledProp.value shouldBe false
 
-            model.getInvalidOrdersCount shouldBe 0
-            model.getValidatedOrdersCount shouldBe 0
             model.getTotalOrdersCount shouldBe 7
+            model.validationStats.invalidOrdersCount shouldBe 0
+            model.validationStats.validatedOrdersCount shouldBe 0
             model.validationViewItemsProp.value.isEmpty shouldBe true
 
-            setup.selectNavigatorItem(model.archiveDirProp.value.get)
+            setup.selectNavigatorItem(Paths.get(""))
 
             setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
 
@@ -469,10 +510,10 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
         }
 
         it("it should behave as follows when an archive is selected, validated and all validation-results are cleared afterwards") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
 
-            setup.selectNavigatorItem(model.archiveDirProp.value.get)
+            setup.selectNavigatorItem(Paths.get(""))
 
             model.selectedNavigatorItemProp.getValue match {
               case Some(item) => item.isValid.isDefined shouldBe false
@@ -505,11 +546,10 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
       describe("when a user-defined draw-date that is before the order's timestamps is entered after a validation") {
         it("the state transition should be as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
             model.validationViewItemsProp.value.isEmpty shouldBe true
             model.validationStateProp.getValue shouldBe ValidationState.NotValidated
-            val orderDir = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
 
             setup.validatePool_blocking()
 
@@ -527,9 +567,9 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
             setup.validatePool_blocking()
 
             model.getTotalOrdersCount shouldBe 7
-            model.getValidatedOrdersCount shouldBe 7
-            model.getInvalidOrdersCount shouldBe 7
-            model.getValidOrdersCount shouldBe 0
+            model.validationStats.validatedOrdersCount shouldBe 7
+            model.validationStats.invalidOrdersCount shouldBe 7
+            model.validationStats.validOrdersCount shouldBe 0
 
 
             model.setCustomDrawDate(None)
@@ -550,7 +590,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
         describe("and thereafter the user-defined draw-time is changed to the same value es the archive-draw-time ") {
 
           it("appModel.drawInfoProp.customDrawTime should be reset") {
-            withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+            withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
               setup.loadPoolArchive_blocking(defaultArchiveFile)
 
               val archiveDrawTime = model.drawDateInfosProp.getValue.get.archiveDrawDate
@@ -583,11 +623,11 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
           val credSpecs_mod = defaultCredentialsSpecs.copy(certConfigItems = wrongRootCaCertSpecs)
 
-          withTestSetup(new ApplicatonModelTestSetup()
+          withTestSetup(new ApplicatonModelTestEnv()
             .withMockSettings(defaultSettings.copy(credentialsSpecs = credSpecs_mod))) { (setup, model) =>
 
             setup.loadPoolArchive_blocking(defaultArchiveFile)
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
 
             setup.validatePool_blocking()
 
@@ -609,10 +649,10 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
     describe("when an archive is validated") {
       describe("and a certificate-setting is changed all validation-data should be reset") {
         it("the model should behave as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
 
             setup.loadPoolArchive_blocking(defaultArchiveFile)
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
             setup.validatePool_blocking()
 
             val credSpecs_mod = defaultCredentialsSpecs.copy(certConfigItems = Seq(
@@ -638,74 +678,84 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
     describe("when an archive is loaded") {
       describe("and a navigator-text filter is set and removed again") {
         it("the model should behave as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
 
             model.navigatorContentRoot.getChildren.size shouldBe 7
 
-            val orderDir01 = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-
-            model.setNavigatorFilterText(Some(orderDir01.getName))
-
-            model.navigatorContentRoot.getChildren.size shouldBe 1
-
-            model.setNavigatorFilterText(None)
-
-            model.navigatorContentRoot.getChildren.size shouldBe 7
+            for (orderIdIndex <- 0 to 3) {
+              val orderId = setup.getNthOrderId(orderIdIndex)
+              model.setNavigatorFilterText(Some(orderId))
+              model.navigatorContentRoot.getChildren.size shouldBe 1
+              model.navigatorContentRoot.getChildren.get(0).getValue.displayName shouldBe orderId
+              model.setNavigatorFilterText(None)
+              model.navigatorContentRoot.getChildren.size shouldBe 7
+            }
           }
         }
       }
+
       describe("when an existing retailer-order-id is entered to navigator's text filter") {
         it("the model should behave as follows") {
-          withTestSetup(new ApplicatonModelTestSetup()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
             model.navigatorContentRoot.getChildren.size shouldBe 7
-            val orderDir01 = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)(0)
-            //set retailer-order-reference
-            val customerOrderIdToFind = "8d466591-97de-45b7-8eb9-4aaefe22902f"
-            model.setNavigatorFilterText(Some(customerOrderIdToFind))
 
-            model.navigatorContentRoot.getChildren.size shouldBe 1
-            model.navigatorContentRoot.getChildren.get(0).getValue match {
-              case dirItem : OrderDirNavigatorItem =>
-                withClue("order.retailerOrderReference in the found order directory"){
-                  customerOrderIdToFind shouldEqual setup.poolResourceProvider.getOrder(dirItem.path).get.metaData.retailerOrderReference
-                }
-              case x => fail(s"OrderDirNavigatorItem expected, but obtained $x")
+            case class OrderInfo(zoeOrderId: String, retailerOrderId: String)
+
+            val allOrderInfos: IndexedSeq[OrderInfo] = setup.getAllOrderIds.map(setup.model.resourceProvider.get.getOrder(_)).map(o => 
+              OrderInfo(zoeOrderId = o.get.orderId, retailerOrderId = o.get.metaData.retailerOrderReference)
+            )
+
+            allOrderInfos.size should be > 3
+
+            allOrderInfos.foreach { orderInfo =>
+              model.setNavigatorFilterText(Some(orderInfo.retailerOrderId))
+
+              model.navigatorContentRoot.getChildren.size shouldBe 1
+              model.navigatorContentRoot.getChildren.get(0).getValue match {
+                case dirItem: OrderDirNavigatorItem =>
+                  dirItem.retailerOrderReference shouldBe orderInfo.retailerOrderId
+                  dirItem.displayName shouldBe orderInfo.zoeOrderId
+                  withClue("order.retailerOrderReference in the found order directory") {
+                    orderInfo.retailerOrderId shouldEqual setup.model.resourceProvider.get.getOrder(dirItem.displayName).get.metaData.retailerOrderReference
+                  }
+                case x => fail(s"OrderDirNavigatorItem expected, but obtained $x")
+              }
+              model.setNavigatorFilterText(None)
+              model.navigatorContentRoot.getChildren.size shouldBe 7
             }
-
-            model.setNavigatorFilterText(None)
-            model.navigatorContentRoot.getChildren.size shouldBe 7
           }
         }
       }
     }
   }
 
+
   describe("An ApplicationModel") {
     describe("when an archive-file is loaded") {
       describe("and there are is a valid and an invalid order") {
         it("the show-valid & show-invalid filters should behave as follows") {
-          withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
+          val allOrdersPaths = getAllOrderIdsFromPoolArchive(defaultArchiveFile).map(Paths.get(_))
+          
+          withTestSetup(new ApplicatonModelTestEnv().withValidator(
+            new PoolValidatorMockup(
+              preparedOrderValidationResults = Vector(
+                OrderValidationResult(allOrdersPaths(0), IndexedSeq(CheckOk(OrderAcceptedCheck))),
+                OrderValidationResult(allOrdersPaths(1), IndexedSeq(CheckFailure(OrderAcceptedCheck, message = "fake-validation-error"))),
+                OrderValidationResult(allOrdersPaths(2), IndexedSeq(CheckOk(OrderAcceptedCheck))),
+                OrderValidationResult(allOrdersPaths(3), IndexedSeq(CheckOk(OrderAcceptedCheck))),
+                OrderValidationResult(allOrdersPaths(4), IndexedSeq(CheckFailure(OrderAcceptedCheck, message = "fake-validation-error"))),
+                OrderValidationResult(allOrdersPaths(5), IndexedSeq(CheckOk(OrderAcceptedCheck))),
+                OrderValidationResult(allOrdersPaths(6), IndexedSeq(CheckOk(OrderAcceptedCheck)))
+              )
+            )
+          )) { (setup, model) =>
             setup.loadPoolArchive_blocking(defaultArchiveFile)
 
-            val orderDirs = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)
-
-            val dummyCheck = OrderCheck(description = "dummy-test", affectedResources = Set(PoolResource.PRType.Order))
-
-            setup.validator.asInstanceOf[PoolValidatorMockup].preparedOrderValidationResults = IndexedSeq(
-              OrderValidationResult(orderDirs(0).toPath, IndexedSeq(CheckOk(dummyCheck))),
-              OrderValidationResult(orderDirs(1).toPath, IndexedSeq(CheckFailure(dummyCheck, message = "fake-validation-error"))),
-              OrderValidationResult(orderDirs(2).toPath, IndexedSeq(CheckOk(dummyCheck))),
-              OrderValidationResult(orderDirs(3).toPath, IndexedSeq(CheckOk(dummyCheck))),
-              OrderValidationResult(orderDirs(4).toPath, IndexedSeq(CheckFailure(dummyCheck, message = "fake-validation-error"))),
-              OrderValidationResult(orderDirs(5).toPath, IndexedSeq(CheckOk(dummyCheck))),
-              OrderValidationResult(orderDirs(6).toPath, IndexedSeq(CheckOk(dummyCheck)))
-            )
-
-            setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+            setup.selectNavigatorItem(Paths.get(""))
 
             model.navigatorContentRoot.getChildren.size shouldBe 7
             model.getVisibleOrdersCount shouldBe 7
@@ -727,8 +777,8 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
             model.navigatorContentRoot.getChildren.size shouldBe 7
 
-            model.getValidOrdersCount shouldBe 5
-            model.getInvalidOrdersCount shouldBe 2
+            model.validationStats.validOrdersCount shouldBe 5
+            model.validationStats.invalidOrdersCount shouldBe 2
 
             //check filtering
 
@@ -760,8 +810,8 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
             //reset all validation-results
             model.resetValidationResults()
-            model.getValidOrdersCount shouldBe 0
-            model.getInvalidOrdersCount shouldBe 0
+            model.validationStats.validOrdersCount shouldBe 0
+            model.validationStats.invalidOrdersCount shouldBe 0
 
             model.navigatorContentRoot.getChildren.size shouldBe 7
           }
@@ -770,7 +820,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
       describe("and ApplicationModel.unload() is called thereafter the model-state should be completely resetted") {
         it("the show-valid & show-invalid filters should behave as follows") {
-          withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
+          withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
             for (i <- 1 to 4) {
               setup.loadPoolArchive_blocking(defaultArchiveFile)
               model.getTotalOrdersCount should be > 0
@@ -788,27 +838,27 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
   describe("An ApplicationModel with a loaded archive containing some validation errors") {
 
     it("should apply ValidationStateView-filters depending on the selected NavigatorItem") {
-      withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
+      val allOrdersPaths = getAllOrderIdsFromPoolArchive(defaultArchiveFile).map(Paths.get(_))
+      
+      withTestSetup(new ApplicatonModelTestEnv().withValidator(
+        new PoolValidatorMockup(
+          preparedOrderValidationResults = Vector(
+            OrderValidationResult(allOrdersPaths(0), IndexedSeq(CheckOk(PoolParticipationCheck))),
+            OrderValidationResult(allOrdersPaths(1), IndexedSeq(CheckFailure(PoolParticipationCheck, message = "fake-validation-error"))),
+            OrderValidationResult(allOrdersPaths(2), IndexedSeq(CheckOk(PoolParticipationCheck))),
+            OrderValidationResult(allOrdersPaths(3), IndexedSeq(CheckOk(PoolParticipationCheck))),
+            OrderValidationResult(allOrdersPaths(4), IndexedSeq(CheckOk(PoolParticipationCheck))),
+            OrderValidationResult(allOrdersPaths(5), IndexedSeq(CheckFailure(PoolParticipationCheck, message = "fake-validation-error"))),
+            OrderValidationResult(allOrdersPaths(6), IndexedSeq(CheckOk(PoolParticipationCheck)))
+          )
+        )        
+      )) { (setup, model) =>
         setup.loadPoolArchive_blocking(defaultArchiveFile)
 
         Given("A validated archive with some validation-errors")
         And("the ArchiveItem selected in the Pool Navigator")
 
-        val orderDirs = model.archiveDirProp.getValue.get.listFiles(DirectoryFilter)
-
-        val dummyCheck = OrderCheck(description = "dummy-test", affectedResources = Set(PoolResource.PRType.Order))
-
-        setup.validator.asInstanceOf[PoolValidatorMockup].preparedOrderValidationResults = IndexedSeq(
-          OrderValidationResult(orderDirs(0).toPath, IndexedSeq(CheckOk(dummyCheck))),
-          OrderValidationResult(orderDirs(1).toPath, IndexedSeq(CheckFailure(dummyCheck, message = "fake-validation-error"))),
-          OrderValidationResult(orderDirs(2).toPath, IndexedSeq(CheckOk(dummyCheck))),
-          OrderValidationResult(orderDirs(3).toPath, IndexedSeq(CheckOk(dummyCheck))),
-          OrderValidationResult(orderDirs(4).toPath, IndexedSeq(CheckOk(dummyCheck))),
-          OrderValidationResult(orderDirs(5).toPath, IndexedSeq(CheckFailure(dummyCheck, message = "fake-validation-error"))),
-          OrderValidationResult(orderDirs(6).toPath, IndexedSeq(CheckOk(dummyCheck)))
-        )
-
-        setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+        setup.selectNavigatorItem(Paths.get("")) shouldBe defined
 
         setup.validatePool_blocking()
 
@@ -826,7 +876,7 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
         When("an OrderDirNavigatorItem is selected thereafter")
 
-        setup.selectNavigatorItem(orderDirs(0))
+        setup.selectNavigatorItem(allOrdersPaths(0))
 
         setup.expectDetailDataType(Some(classOf[OrderDirectoryDetailData]))
 
@@ -838,50 +888,53 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
 
         When("the ArchiveNavigatorItem is selected again")
 
-        setup.selectNavigatorItem(model.archiveDirProp.getValue.get)
+        setup.selectNavigatorItem(Paths.get(""))
 
         Then("the ValidationStateView-filter should not be effective again")
 
         model.validationViewItemsProp.collect { case i: ValidationViewStateItem => i }.count(_.result.isOk) shouldBe 0
         model.validationViewItemsProp.collect { case i: ValidationViewStateItem => i }.count(!_.result.isOk) shouldBe 2
         setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
-
       }
     }
   }
 
   describe("An ApplicationModel when loaded a valid archive directory") {
     it("should be in the expected initial state") {
-      withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
+      withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
         setup.loadPoolDirectory_blocking(defaultArchiveDirectory)
         setup.runLaterExecutor.expectNoPendingJobs()
         model.poolSourceProp.getValue shouldBe Some(PoolSourceDirectory(defaultArchiveDirectory.toPath))
         model.navigatorContentRoot.getChildren.size shouldBe 7
+        model.validationStateProp.getValue shouldBe ValidationState.NotValidated
       }
     }
-
-    describe("when a pool-archive was loaded before") {
-      it("should delete the archive's temp-dir") {
-        withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
-          setup.loadPoolArchive_blocking(defaultArchiveFile)
-
-          model.poolSourceProp.getValue shouldBe Some(PoolSourceArchive(defaultArchiveFile.toPath))
-          model.navigatorContentRoot.getChildren.size shouldBe 7
-          model.archiveExtractionTargetTempDir.isDefined shouldBe true
-          val archiveTempDir = model.archiveExtractionTargetTempDir.get
-          archiveTempDir.exists() shouldBe true
-
-          setup.loadPoolDirectory_blocking(defaultArchiveDirectory)
-          archiveTempDir.exists() shouldBe false
+    
+    describe("with 'validate-on-loading:true'") {
+      it("archive should be `CompletelyValidated` at the end") {
+        val allOrderIds = getAllOrderIdsFromPoolArchive(defaultArchiveDirectory)
+        allOrderIds.size shouldBe 7
+        
+        val validator = new HappyPathPoolValidatorMock(allOrderIds)
+        
+        withTestSetup(new ApplicatonModelTestEnv().withValidator(validator).withMockSettings(
+          defaultSettings.copy(validatePoolOnLoading = true)          
+        )) { (setup, model) =>
+          setup.loadPoolDirectory_blocking(defaultArchiveDirectory, expectedValidationState = ValidationState.CompletelyValidated)
+          setup.runLaterExecutor.expectNoPendingJobs()
           model.poolSourceProp.getValue shouldBe Some(PoolSourceDirectory(defaultArchiveDirectory.toPath))
           model.navigatorContentRoot.getChildren.size shouldBe 7
+          eventually {
+            setup.runLaterExecutor.executeAll()
+            model.validationStateProp.getValue shouldBe ValidationState.CompletelyValidated
+          }
         }
       }
     }
 
     describe("and ApplicationModel.unload() is called thereafter the model-state should be completely resetted") {
       it("the show-valid & show-invalid filters should behave as follows") {
-        withTestSetup(new ApplicatonModelTestSetup().withMockValidator()) { (setup, model) =>
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
           for (i <- 1 to 4) {
             setup.loadPoolDirectory_blocking(defaultArchiveDirectory)
             model.getTotalOrdersCount should be > 0
@@ -911,38 +964,48 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
       }
     }
   }
+
+  def getAllOrderIdsFromPoolArchive(location: File): Vector[OrderId] = {
+    val resourceProvider = location match {
+      case dir if location.isDirectory => new PoolResourceProviderDirectoryImpl(dir.toPath, defaultDocsParser)
+      case tgzFile if location.isFile && FilenameUtils.getExtension(location.getName) == "tgz" =>
+        new PoolResourceProviderTarGzImpl(tgzFile.toPath, defaultDocsParser, 5)
+      case _ if location.isFile => fail(s"getAllOrderIdsFromPoolArchive() unsupported file (only .tgz supported): $location")
+      case _ => fail(s"getAllOrderIdsFromPoolArchive() - unsupported location: $location")
+    }
+    whenReady(resourceProvider.getOrderDocsObservable().map(x => x.get.orderId).toListL.runAsync.map(_.toVector))(identity)
+  }
+  
 }
 
 
-class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
-
+class ApplicatonModelTestEnv(implicit val patienceConfigValues: PatienceConfigValues) extends Matchers with ScalaFutures with Eventually {
+  import ApplicatonModelTestEnv.defaultDocsParser
+  
   private val logger = LoggerFactory.getLogger(getClass)
   private var _model: ApplicationModel = null
   private var failOnErrorMsg = true
   private var initModel = true
   private implicit val executionContext: ExecutionContext = scala.concurrent.ExecutionContext.Implicits.global
-  private val archiveReader = new ArchiveReaderImpl
-  private val asyncTaskExecutor = Executors.newFixedThreadPool(1)
-  private var settingsManager: ApplicationSettingsManager = new ApplicationSettingsManagerMockup(ApplicatonModelTestSetup.defaultSettings)
+  private var settingsManager: ApplicationSettingsManager = new ApplicationSettingsManagerMockup(ApplicatonModelTestEnv.defaultSettings)
   private val credentialsManager: CredentialsManager = new CredentialsManagerImpl
 
-  val runLaterExecutor = new RunLaterExecutor4Tests
-  val poolResourceProvider = new PoolResourceProviderImpl
-  var validator: PoolValidator = new PoolValidatorImpl(poolResourceProvider,
-    executionContext,
-    ApplicatonModelTestSetup.defaultCredentialsManager,
-    DefaultSignatureAlgMapper
-  )
+  val runLaterExecutor: RunLaterExecutor4Tests = new RunLaterExecutor4Tests
+  val resourceProviderFactory: PoolResourceProviderFactoryImpl = new PoolResourceProviderFactoryImpl(
+    defaultDocsParser, orderDocsCacheSize = 10)
+  var validatorFactory: PoolValidatorFactory = PoolValidatorFactoryImpl
 
+  override implicit val patienceConfig: PatienceConfig = PatienceConfig(patienceConfigValues.timeout, patienceConfigValues.interval)
+  
+  
   def model: ApplicationModel = _model
 
-  def withValidator(validator: PoolValidator): this.type = {
-    this.validator = validator
-    this
-  }
-
-  def withMockValidator(): this.type = {
-    this.validator = new PoolValidatorMockup(preparedOrderValidationResults = IndexedSeq.empty, executionContext)
+  def withValidator(poolValidator: PoolValidator): this.type = {
+    validatorFactory = new PoolValidatorFactory(){
+      override def getValidator(
+        resourceProvider: PoolResourceProvider, credentialsManager: CredentialsManager, scheduler: MonixScheduler
+      ): PoolValidator = poolValidator
+    }
     this
   }
 
@@ -968,15 +1031,14 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
   def init(): this.type = {
     _model = new ApplicationModel(
-      archiveReader,
-      poolResourceProvider,
-      validator,
+      resourceProviderFactory,
+      validatorFactory,
       settingsManager = settingsManager,
       credentialsManager = credentialsManager,
       configFile = new File("dummyFile"),
       runLaterExecutor = runLaterExecutor,
-      asyncTaskExecutor = asyncTaskExecutor,
-      executionContext = executionContext)
+      implicitly[MonixScheduler]
+    )
     if (initModel) {
       model.init()
     }
@@ -998,21 +1060,32 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     * Blocking method to load an `archiveFile` via `model.loadPoolArchive(Some(archiveFile))`.
     * Also checks the expected OpStates.
     **/
-  def loadPoolArchive_blocking(archiveFile: File): Unit = loadPoolSource_blocking(PoolSourceArchive(archiveFile.toPath))
+  def loadPoolArchive_blocking(
+    archiveFile: File, 
+    expectedValidationState: ValidationState.Value = ValidationState.NotValidated
+  ): Unit = {
+    loadPoolSource_blocking(PoolSourceArchive(archiveFile.toPath), expectedValidationState)
+  }
 
   /**
     * Blocking method to load an `archiveFile` via `model.loadPoolArchive(Some(archiveFile))`.
     * Also checks the expected OpStates.
     **/
-  def loadPoolDirectory_blocking(archiveDir: File): Unit = loadPoolSource_blocking(PoolSourceDirectory(archiveDir.toPath))
+  def loadPoolDirectory_blocking(
+    archiveDir: File, expectedValidationState: ValidationState.Value = ValidationState.NotValidated
+  ): Unit = {
+    loadPoolSource_blocking(PoolSourceDirectory(archiveDir.toPath), expectedValidationState)
+  }
 
   /**
     * Blocking method to load an `archiveFile` via `model.loadPoolArchive(Some(archiveFile))`.
     * Also checks the expected OpStates.
     **/
-  def loadPoolSource_blocking(poolSource: PoolSource): Unit = {
+  def loadPoolSource_blocking(
+    poolSource: PoolSource, expectedValidationState: ValidationState.Value = ValidationState.NotValidated
+  ): Unit = {
 
-    val modelLoadMethod: (File) => Future[Unit] = poolSource match {
+    val modelLoadMethod: (File) => Unit = poolSource match {
       case s: PoolSourceArchive =>
         Utils.isFileUnreadable(poolSource.path.toFile) shouldBe None
         model.loadPoolArchive _
@@ -1033,20 +1106,22 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
     runLaterExecutor.setMode(Mode.RunAtOnce) // ==> needed since the promise.success() is called within runLater{}
 
-    val loadFuture = modelLoadMethod(poolSource.path.toFile)
-    logger.info(s"promise_stateLoaded: before whenReady..#runLater:${runLaterExecutor.exexutions.size}")
-    whenReady(loadFuture, PatienceConfiguration.Timeout.apply(30 seconds)) { result =>
-      runLaterExecutor.executeAll()
-      logger.info(s"promise_stateLoaded in whenReady()..result:$result")
+    modelLoadMethod(poolSource.path.toFile)
+
+    eventually {
+      val ordersCount = model.resourceProvider.get.getOrdersCount().get
+      withClue("ordersCount:")(ordersCount should be > 0)
     }
+    
 
+    eventually {
+      runLaterExecutor.executeAll()
+      model.appStateProp.getValue shouldBe AppState.Loaded
+      model.validationStateProp.getValue shouldBe expectedValidationState
+      appStateChanges.result() should contain(AppState.Loading)
+      model.poolSourceProp.getValue shouldBe Some(poolSource)
+    }
     runLaterExecutor.setMode(runLaterExecutorMode_old)
-
-    logger.info("promise_stateLoaded: after whenReady")
-    model.appStateProp.getValue shouldBe AppState.Loaded
-    model.validationStateProp.getValue shouldBe ValidationState.NotValidated
-    appStateChanges.result() should contain(AppState.Loading)
-    model.poolSourceProp.getValue shouldBe Some(poolSource)
   }
 
   /**
@@ -1054,16 +1129,9 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     * Also checks the expected OpStates.
     **/
   def modelUnload_blocking(): Unit = {
-    model.archiveExtractionTargetTempDir match {
-      case None =>
-        model.unload()
-      case Some(tempDirToDelete) =>
-        logger.debug("promise_stateLoaded: before whenReady")
-        whenReady(model.unload(), PatienceConfiguration.Timeout.apply(30 seconds)) { result =>
-          logger.debug(s"promise_stateLoaded in whenReady()..result:$result")
-          runLaterExecutor.executeAll()
-        }
-        logger.debug("promise_stateLoaded: after whenReady")
+    whenReady(model.unload(), PatienceConfiguration.Timeout.apply(30 seconds)) { result =>
+      logger.debug(s"promise_stateLoaded in whenReady()..result:$result")
+      runLaterExecutor.executeAll()
     }
     model.appStateProp.getValue shouldBe AppState.Undefined
   }
@@ -1081,22 +1149,23 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
       validationProgressList += newValue
     }
 
-    logger.info("promise_validated: before whenReady")
-    whenReady(model.validateParticipationPool(), PatienceConfiguration.Timeout.apply(30 seconds)) { result =>
-      logger.info(s"validateAllOrders() --> futureCompleted: $result")
+    logger.info("before validateParticipationPool()")
+    model.validateParticipationPool()
+
+    eventually {
       runLaterExecutor.executeAll()
+      if (model.getTotalOrdersCount > 0) {
+        validationProgressList.result().isEmpty shouldBe false
+        validationProgressList.result().exists(_.nonEmpty) // ==> there should be emitted some progress-values during validation
+      }
+  
+      withClue("validatedOrdersCount == totalOrdersCount") {
+        model.validationStats.validatedOrdersCount shouldBe model.getTotalOrdersCount
+      }
+      model.validationStateProp.getValue shouldBe ValidationState.CompletelyValidated
+      model.validateArchiveEnabledProp.value shouldBe true
     }
-    logger.info("promise_validated: after whenReady")
-
-    if (model.getTotalOrdersCount > 0) {
-      validationProgressList.result().isEmpty shouldBe false
-      validationProgressList.result().exists(_.nonEmpty) // ==> there should be emitted some progress-values during validation
-    }
-
-    withClue("validatedOrdersCount == totalOrdersCount") {
-      model.getValidatedOrdersCount shouldBe model.getTotalOrdersCount
-    }
-    model.validationStateProp.getValue shouldBe ValidationState.CompletelyValidated
+    logger.info("validateParticipationPool() completed")
   }
 
   def expectOrderCounts(totalOrders: Int = -1, validatedOrders: Int = -1, validOrders: Int = -1, invalidOrders: Int = -1): Unit = {
@@ -1104,13 +1173,13 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
       withClue("#totalOrders")(model.getTotalOrdersCount shouldBe totalOrders)
     }
     if (validatedOrders > -1) {
-      withClue("#validatedOrders")(model.getValidatedOrdersCount shouldBe validatedOrders)
+      withClue("#validatedOrders")(model.validationStats.validatedOrdersCount shouldBe validatedOrders)
     }
     if (validOrders > -1) {
-      withClue("#validOrders")(model.getValidOrdersCount shouldBe validOrders)
+      withClue("#validOrders")(model.validationStats.validOrdersCount shouldBe validOrders)
     }
     if (invalidOrders > -1) {
-      withClue("#invalidOrders")(model.getInvalidOrdersCount shouldBe invalidOrders)
+      withClue("#invalidOrders")(model.validationStats.invalidOrdersCount shouldBe invalidOrders)
     }
   }
 
@@ -1133,11 +1202,11 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
     withClue(
       s"""expectNoInvalidOrders()
-          |model.validationStateJournal:
-          |${model.validationViewItemsProp.getValue.mkString("\n")}
+         |model.validationStateJournal:
+         |${model.validationViewItemsProp.getValue.mkString("\n")}
       """.stripMargin) {
 
-      model.getInvalidOrdersCount shouldBe 0
+      model.validationStats.invalidOrdersCount shouldBe 0
 
       withClue("validationStateJournal should not contain any errors") {
         model.validationViewItemsProp.getValue.collect { case i: ValidationViewStateItem => i }.forall(_.result.isOk)
@@ -1147,7 +1216,7 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
         case Some(item) =>
           fail(
             s"""expectCompletelyValidatedAllValid() found navigator-item with validation-state == Some(false): \n$item
-                |item.isValid=${item.isValid}
+               |item.isValid=${item.isValid}
            """.stripMargin)
         case _ => // do nothing
       }
@@ -1168,15 +1237,17 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
 
   def expectCompletelyValidatedAllValid(): Unit = {
 
+    runLaterExecutor.expectNoPendingJobs()
+    
     withClue(
       s"""expectCompletelyValidatedAllValid()
-          |model.validationStateJournal:
-          |${model.validationViewItemsProp.getValue.mkString("\n")}
+         |model.validationStateJournal:
+         |${model.validationViewItemsProp.getValue.mkString("\n")}
       """.stripMargin) {
 
-      model.getValidatedOrdersCount shouldBe model.getTotalOrdersCount
-      model.getInvalidOrdersCount shouldBe 0
-      model.getValidOrdersCount shouldBe model.getTotalOrdersCount
+      model.validationStats.validatedOrdersCount shouldBe model.getTotalOrdersCount
+      model.validationStats.invalidOrdersCount shouldBe 0
+      model.validationStats.validOrdersCount shouldBe model.getTotalOrdersCount
       model.validationStateProp.getValue shouldBe ValidationState.CompletelyValidated
 
       model.validateArchiveEnabledProp.value shouldBe true
@@ -1189,7 +1260,7 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
         case Some(item) =>
           fail(
             s"""expectCompletelyValidatedAllValid() found navigator-item with validation-state != Some(true): \n$item
-                |item.isValid=${item.isValid}
+               |item.isValid=${item.isValid}
            """.stripMargin)
         case _ =>
 
@@ -1200,15 +1271,19 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
         case Some(item) => item.isValid shouldBe Some(true)
         case _ => // do nothing
       }
-      model.orderDocDetailDataProp.getValue match {
-        case Some(d: ArchiveDetailData) =>
-          d.validationState shouldBe ValidationState.CompletelyValidated
-          d.validatedOrdersCount shouldBe d.totalOrdersCount
-          d.invalidOrdersCount shouldBe 0
-          d.validOrdersCount shouldBe d.totalOrdersCount
-          d.totalOrdersCount shouldBe model.getTotalOrdersCount
-        case x => // do nothing
-      }
+      
+      eventually {
+        runLaterExecutor.executeAll()
+        model.orderDocDetailDataProp.getValue match {
+          case Some(d: ArchiveDetailData) =>
+            d.validationState shouldBe ValidationState.CompletelyValidated
+            d.validatedOrdersCount shouldBe d.totalOrdersCount
+            d.invalidOrdersCount shouldBe 0
+            d.validOrdersCount shouldBe d.totalOrdersCount
+            d.totalOrdersCount shouldBe model.getTotalOrdersCount
+          case x => // do nothing
+        }
+      }      
     }
   }
 
@@ -1217,9 +1292,7 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     model.appStateProp.getValue shouldBe AppState.Undefined
     model.validationViewStateProp.getValue shouldBe ValidationViewState.NoArchiveLoaded
     model.canOpenArchiveProp.getValue shouldBe true
-    model.archiveDirProp.getValue shouldBe None
-    model.getArchiveFileSelectorInitialDirectory shouldBe Some(System.getProperty("user.dir")).map(new File(_).toPath)
-    model.getInvalidOrdersCount shouldBe 0
+    model.validationStats.invalidOrdersCount shouldBe 0
     Option(model.getSettings) should not be None
     model.orderDocDetailDataProp.getValue shouldBe None
     model.poolSourceProp.getValue shouldBe None
@@ -1228,15 +1301,13 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     model.validateSingleOrderEnabledProp.getValue shouldBe false
     model.backgroundTaskInfoProp.getValue shouldBe None
 
-    model._validatedOrders.size shouldBe 0
+    model.validationStats.validatedOrderIds.size shouldBe 0
     model.getVisibleOrdersCount shouldBe model.getTotalOrdersCount
     model.getTotalOrdersCount shouldBe 0
-    model.getValidatedOrdersCount shouldBe 0
-    model.getInvalidOrdersCount shouldBe 0
-    model.getValidOrdersCount shouldBe 0
+    model.validationStats.validatedOrdersCount shouldBe 0
+    model.validationStats.invalidOrdersCount shouldBe 0
+    model.validationStats.validOrdersCount shouldBe 0
 
-    model.archiveExtractionTargetTempDir shouldBe None
-    model.archiveDirProp.getValue shouldBe None
     model.canOpenArchiveProp.getValue shouldBe true
     model.drawDateInfosProp.getValue shouldBe None
     model.orderDocDetailDataProp.getValue shouldBe None
@@ -1263,8 +1334,8 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     }
 
     model.validationStateProp.value shouldBe ValidationState.NotValidated
-    model.getInvalidOrdersCount shouldBe 0
-    model.getValidatedOrdersCount shouldBe 0
+    model.validationStats.invalidOrdersCount shouldBe 0
+    model.validationStats.validatedOrdersCount shouldBe 0
     model.selectedNavigatorItemProp.getValue.foreach { sel =>
       sel.isValid shouldBe None
       sel.validationResults.isEmpty shouldBe true
@@ -1284,16 +1355,21 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
     }
   }
 
+  def getNthOrderId(index: Int): String = {
+    model.resourceProvider.get.getOrderDocsObservable().toListL.runSyncUnsafe(patienceConfig.timeout).apply(index).map(_.orderId).getOrElse(
+      fail(s"no order found for index=$index")
+    )
+  }
+
+  def getAllOrderIds: IndexedSeq[String] = {
+    model.resourceProvider.get.getOrderDocsObservable().toListL.runSyncUnsafe(patienceConfig.timeout).map(_.get.orderId).toVector
+  }
+
   /** Selects the concerned `NavigatorItem` for `file` via `model.setSelectedNavigatorItem(item)` if so and
     * fails if no matching `NavigatorItem` exists.
     * Also checks some other basic `model`-state values associated with the selection-change. */
-  def selectNavigatorItem(file: File): Option[NavigatorItem] = {
-
-    Utils.isFileUnreadable(file).foreach { error =>
-      fail(s"selectNavigatorItemFor()..invalid file: $error")
-    }
-
-    model.findNavigatorItemFor(file.toPath) match {
+  def selectNavigatorItem(relativePath: Path): Option[NavigatorItem] = {
+    model.findNavigatorItemFor(relativePath) match {
       case item@Some(navItem) =>
         model.setSelectedNavigatorItem(item)
         model.selectedNavigatorItemProp.getValue shouldBe item
@@ -1306,13 +1382,13 @@ class ApplicatonModelTestSetup extends Matchers with ScalaFutures {
             model.orderDocDetailDataProp.getValue.get.getClass shouldBe classOf[OrderDocDetailData[_]]
         }
         model.selectedNavigatorItemProp.getValue
-      case _ => fail(s"no NavigatorItem found for $file")
+      case _ => fail(s"no NavigatorItem found for $relativePath")
     }
   }
 }
 
 
-object ApplicatonModelTestSetup {
+object ApplicatonModelTestEnv {
 
   val workingDir = new File(System.getProperty("user.dir"))
   val credentialsDir = new File(workingDir, "src/test/resources/testdata_qa/credentials/")
@@ -1350,6 +1426,9 @@ object ApplicatonModelTestSetup {
       file = UIValue(Some(timestamperCertFile)), description = Some("CA-certificate"))
   )
 
+  val defaultDocsParser: OrderDocumentsParserPlayImpl = new OrderDocumentsParserPlayImpl(
+    CompositeProductOrderFactory.allProductsOrderFactory)
+  
   val defaultOrderExtractionTarget = UIValue(Some(new File(System.getProperty("java.io.tmpdir"))))
 
   val defaultSettings: ApplicationSettings = ApplicationSettings(
@@ -1363,9 +1442,5 @@ object ApplicatonModelTestSetup {
 
   val defaultArchiveDirectory: File = new File(new File(System.getProperty("user.dir")),
     "src/test/resources/testdata_qa/ejs-2016-02-26_dev_closed")
+  
 }
-
-
-
-
-

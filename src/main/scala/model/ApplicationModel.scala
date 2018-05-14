@@ -1,59 +1,61 @@
 package model
 
 import java.io.File
-import java.nio.file.{Files, Path}
+import java.nio.file.{Path, Paths}
 import java.security.cert.X509Certificate
 import java.time._
-import java.util.concurrent.{CompletionException, CancellationException, Executor}
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.{CancellationException, CompletionException, Executor}
 import java.util.function.Predicate
 import java.util.{Collections, Comparator, UUID}
-import javafx.beans.property._
-import javafx.collections.{FXCollections, ObservableList}
-import javafx.scene.control.TreeItem
 
-import _root_.util.Task.{CancellableMappingAI, CancellableSupplierAI}
-import _root_.util.{Task, TaskImpl, Utils}
+import _root_.util.Utils._
 import domain.PoolResource.Filenames
 import domain.PoolValidator._
 import domain._
 import domain.products.GamingProduct
 import domain.products.GamingProduct.GamingProductId
+import javafx.application.Platform
+import javafx.beans.property._
+import javafx.collections.{FXCollections, ObservableList}
+import javafx.scene.control.TreeItem
 import model.ApplicationModel._
 import model.NavigatorTreeItem._
 import model.OrderDirNavigatorItem.ProductInfos
 import model.base.EventHandlerRegistry
-import org.apache.commons.io.FileUtils
+import monix.eval.Task
+import monix.execution.{Cancelable, CancelableFuture, Scheduler => MonixScheduler}
 import org.slf4j.LoggerFactory
-import util.Utils._
-
-import scala.collection.mutable
-import scala.concurrent.{ExecutionContext, Future, Promise}
-import scala.util.{Failure, Success, Try}
 import scalafx.Includes._
+import util.Utils
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable
+import scala.concurrent.Future
+import scala.reflect.ClassTag
+import scala.util.{Failure, Success, Try}
+
 
 /**
   * @param runLaterExecutor The UI must be updated from the JavaFX Application thread. Since some operations are performed
-  *                         concurrently, their result have to be set to the `AppliationModel` via `Platform.runLater()`.
+  *                         concurrently, their result have to be set to the `ApplicationModel` via `Platform.runLater()`.
   *                         Since the call is not suitable for Unit-test the run-later functionality must be pluggable
   *                         which is achieved by `trait RunLater`.
   *                         Important: `runLaterExecutor` must be thread-safe!
   **/
-class ApplicationModel(archiveReader : ArchiveReader,
-                       resourceProvider: PoolResourceProvider,
-                       validator: PoolValidator,
-                       settingsManager: ApplicationSettingsManager,
-                       private var credentialsManager: CredentialsManager,
-                       configFile: File,
-                       runLaterExecutor: Executor,
-                       asyncTaskExecutor: Executor,
-                       implicit val executionContext: ExecutionContext
-                      ) {
+class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
+  validatorFactory: PoolValidatorFactory,
+  settingsManager: ApplicationSettingsManager,
+  private var credentialsManager: CredentialsManager,
+  configFile: File,
+  runLaterExecutor: Executor,
+  implicit val monixScheduler: MonixScheduler
+) {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
   //Properties
   private val _poolSourceProp = new SimpleObjectProperty(Option.empty[PoolSource])
-  private val _archiveDirProp = new SimpleObjectProperty[Option[File]](None)
   private val _appStateProp = new SimpleObjectProperty[AppState.Value](AppState.Undefined)
   private val _validationStateProp = new SimpleObjectProperty[ValidationState.Value](ValidationState.NotValidated)
   private val _validateArchiveEnabledProp = new SimpleBooleanProperty(false)
@@ -68,7 +70,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
   private val _canOpenArchiveProp = new SimpleBooleanProperty(false)
   private val _selectedNavigatorItemProp = new SimpleObjectProperty[Option[NavigatorItem]](None)
   private val _orderDocDetailDataProp = new SimpleObjectProperty[Option[DetailData]](None)
-  private val _backgroundTaskInfoProp = new SimpleObjectProperty[Option[AsyncTask[_]]](None)
+  private val _backgroundTaskInfoProp = new SimpleObjectProperty[Option[TaskInfo]](None)
   private val _validationViewFilterOptionsProp = new SimpleObjectProperty(
     ValidationViewFilterOptions(showValidOrders = true, showInvalidOrders = true)
   )
@@ -87,32 +89,28 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
   private val navItemFileNameComparator = new Comparator[TreeItemExt[NavigatorItem]]() {
     override def compare(o1: TreeItemExt[NavigatorItem], o2: TreeItemExt[NavigatorItem]): Int = {
-      o1.getValue.path.toFile.getName.compare(o2.getValue.path.toFile.getName)
+      o1.getValue.relativePath.toString compare o2.getValue.relativePath.toString
     }
   }
 
-  private[model] var archiveExtractionTargetTempDir = Option.empty[File]
-
-
-  //cached values (needed for performance reasons, obtaining it from navigatorContentRoot.getChildren is too slow..)
-  private[model] val _validatedOrders = mutable.HashSet.empty[Path]
+  private[model] var resourceProvider: Option[PoolResourceProvider] = None
   private var _totalOrdersCount = 0
-  private var _validatedOrdersCount = 0
-  private var _invalidOrdersCount = 0
-  private var _validOrdersCount = 0
+  private[model] var _validationStats = new ValidationStats()
+  
+  //cached values (needed for performance reasons, obtaining it from navigatorContentRoot.getChildren is too slow..)
   private var _cachedArchiveDetailData = Option.empty[ArchiveDetailData]
-
   private var disposed = false
+  private var lastOpenResourcePath = Option.empty[Path]
 
+  //constants
   private val LineSep = System.getProperty("line.separator", "\n")
-
-
+  private val EmptyValidationResults = IndexedSeq.empty[CheckResult]
+  private var AllOrderDocumentValidationsOk = Option.empty[IndexedSeq[CheckResult]]
+  private val BackgroundTaskDescription_validatePool = "Validate pool"
 
   def settings: ApplicationSettings = _settings
 
   def poolSourceProp: ReadOnlyProperty[Option[PoolSource]] = _poolSourceProp
-
-  def archiveDirProp: ReadOnlyProperty[Option[File]] = _archiveDirProp
 
   def appStateProp: ReadOnlyProperty[AppState.Value] = _appStateProp
 
@@ -132,7 +130,9 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
   def orderDocDetailDataProp: ReadOnlyProperty[Option[DetailData]] = _orderDocDetailDataProp
 
-  def backgroundTaskInfoProp : ReadOnlyProperty[Option[TaskInfo]] = _backgroundTaskInfoProp.asInstanceOf[SimpleObjectProperty[Option[TaskInfo]]]
+  /** The PoolValidator supports one asynchronous background task at a time (e.g. "Load archive"). This property provides
+    * informations about its current state (e.g. description, progress indication etc.).*/
+  def backgroundTaskInfoProp: ReadOnlyProperty[Option[TaskInfo]] = _backgroundTaskInfoProp.asInstanceOf[SimpleObjectProperty[Option[TaskInfo]]]
 
   def validationViewFilterOptionsProp: ReadOnlyProperty[ValidationViewFilterOptions] = _validationViewFilterOptionsProp
 
@@ -172,23 +172,16 @@ class ApplicationModel(archiveReader : ArchiveReader,
       val details = s"${settings.errors.map(x => s"${x.message}: $LineSep ${x.detail.getOrElse("")}").mkString(LineSep + LineSep)}"
       publishErrorEvents(ErrorMsg("Invalid configuration", detail = Some(details)))
     }
-
-    archiveReader.setTempDir(_settings.archiveExtractionTarget.value.map(_.toPath).orNull)
-
     initKeysAndCerts()
-
     _showUIDebugControlsProp.setValue(settings.showUIDebugControls)
   }
 
-  def loadPoolDirectory(directory: File): Future[Unit] = loadPoolSource(
-    PoolSourceDirectory(directory.toPath), validatePoolAfterLoading = _settings.validatePoolOnLoading 
+  def loadPoolDirectory(directory: File): Unit = loadPoolSource(
+    PoolSourceDirectory(directory.toPath), validateOnLoading = settings.validatePoolOnLoading
   )
 
-  /**
-    * Loads an archiveFile. Info: the loading is performed asynchronously.
-    **/
-  def loadPoolArchive(archiveFile: File): Future[Unit] = loadPoolSource(
-    PoolSourceArchive(archiveFile.toPath), validatePoolAfterLoading = _settings.validatePoolOnLoading
+  def loadPoolArchive(archiveFile: File): Unit = loadPoolSource(
+    PoolSourceArchive(archiveFile.toPath), validateOnLoading = settings.validatePoolOnLoading
   )
 
   def unload(): Future[Unit] = {
@@ -196,8 +189,8 @@ class ApplicationModel(archiveReader : ArchiveReader,
     resetModelState()
   }
 
-  private def publishErrorEvents(errors : ErrorMsg*): Unit = {
-    errors.foreach{err =>
+  private def publishErrorEvents(errors: ErrorMsg*): Unit = {
+    errors.foreach { err =>
       err.exception match {
         case Some(t) => logger.error(s"publishErrorEvent(${err}", t)
         case _ => logger.error(s"publishErrorEvent(${err}")
@@ -206,205 +199,207 @@ class ApplicationModel(archiveReader : ArchiveReader,
     errorEventHandler.publishEvent(errors)
   }
 
-  /** @param validatePoolAfterLoading when this parameter is `true`, the participation pool archive is validated 
-    * immediately after loading (convenience option).*/
-  private[model] def loadPoolSource(poolSource: PoolSource, validatePoolAfterLoading: Boolean): Future[Unit] = {
+  /** @param validateOnLoading when this parameter is `true`, the participation pool archive is validated 
+    *                          immediately after loading (convenience option). */
+  private[model] def loadPoolSource(poolSource: PoolSource, validateOnLoading: Boolean): Unit = {
     logger.info(s"loadPoolSource($poolSource)")
-    val retValPromise = Promise[Unit]()
-
     resetModelState().onComplete { resetResult =>
       logger.info("resetModelFuture.onComplete")
-
       runLater {
-        loadPoolSourceImpl(poolSource).onComplete { result =>
-          logger.info(s"loadPoolFuture.onComplete: $result => retValPromise.success()")
-          retValPromise.success()
-          if(validatePoolAfterLoading) {
-            logger.info(s"loadPoolFuture.onComplete --> start validating..")
-            runLater {
-              validateParticipationPool()
-            }
-          }
-        }
+        loadPoolSourceImpl(poolSource, validateOnLoading)
+      }
+    }
+    logger.debug(s"loadPoolImpl()..leaving")
+  }
+
+  private def validatePoolTimestamp(orderIds: Vector[String]): Unit = {
+    val taskId = UUID.randomUUID()
+    runLater {
+      setCurrentBackgroundTask(Some(CancelableMonixTask(cancelable = None, "Validate pool timestamp", id = taskId)))
+    }
+
+    def updateProgressIndicator(newProgress: Double): Unit = {
+      updateBackgroundTaskInfoPropIfSoConditioned[CancelableMonixTask](taskId, condition = _.progress != newProgress) { oldTaskInfo =>
+        Some(oldTaskInfo.withUpdatedProgress(newProgress))
       }
     }
 
-    logger.debug(s"loadPoolImpl()..leaving")
-    retValPromise.future
+    val vResult: IndexedSeq[CheckResult] = validatorFactory
+      .getValidator(resourceProvider.get, credentialsManager, monixScheduler)
+      .validatePoolSeal(orderIds, resourceProvider.get.getPoolMetadata(), getDrawTime, Some(updateProgressIndicator))
+
+    logger.info(s"validatePoolTimestamp() - result: ${vResult.mkString("\n")}")
+
+    runLater {
+      integratePoolValidationResults(vResult)
+      updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](taskId)(_ => None)
+      updateValidationState()
+      updateValidationViewItems()
+    }
   }
 
-
-  private[model] def loadPoolSourceImpl(poolSource: PoolSource): Future[Unit] = {
-
+  private[model] def loadPoolSourceImpl(poolSource: PoolSource, validateOnLoading: Boolean): Unit = {
     logger.info("loadPoolSourceImpl..start")
-
-    val retValPromise = Promise[Unit]()
-
+    if (resourceProvider.nonEmpty) {
+      logger.error(s"loadPoolSourceImpl($poolSource)..resourceProvider is non-empty!")
+    }
+    resourceProvider = resourceProviderFactory.getProvider(poolSource).toOption
     _appStateProp.setValue(AppState.Loading)
+    lastOpenResourcePath = Some(poolSource.path)
     updateValidationViewState()
     _poolSourceProp.setValue(Option(poolSource))
 
-    require(_settings.isValid, s"invalid Settings!\n$settings")
+    val initResourceProviderFuture = resourceProvider.map(_.init()).getOrElse(Future.successful())
 
-    val createItemsFuture: Task[IndexedSeq[TreeItemExt[NavigatorItem]]] = poolSource match {
-      case dirSrc: PoolSourceDirectory =>
-        _archiveDirProp.set(Option(dirSrc.path.toFile))
-        new TaskImpl[IndexedSeq[TreeItemExt[NavigatorItem]]](info="generateNavItems", new CancellableSupplierAI[IndexedSeq[TreeItemExt[NavigatorItem]]] {
-          override def supply(): IndexedSeq[TreeItemExt[NavigatorItem]] = {
-            generateNavigatorItems(dirSrc.path)
+    initResourceProviderFuture.onComplete {
+      case Success(_) =>
+        val generateItemsTaskId = UUID.randomUUID()
+
+        runLater {
+          setCurrentBackgroundTask(Some(CancelableMonixTask(cancelable = None, "Loading pool archive", id = generateItemsTaskId)))
+          navigatorContentRoot.setValue(ArchiveNavigatorItem(
+            relativePath = poolSource.path,
+            displayName = poolSourceProp.getValue.get.path.toFile.getName,
+            poolSource = poolSourceProp.getValue.get,
+            isValid = None,
+            validationState = ValidationState.NotValidated
+          ))
+          _navigatorContentRootProp.setValue(Some(navigatorContentRoot))
+        }
+
+        val tsBeforeGenNavItems = Instant.now()
+
+        def updateProgress(newProgress: Double): Unit = updateBackgroundTaskInfoPropIfSoConditioned[CancelableMonixTask](
+          generateItemsTaskId, condition = _.progress != newProgress
+        ) {
+          oldTask => Some(oldTask.withUpdatedProgress(newProgress))
+        }
+
+        val createNavigatorItemsTaskFuture = generateNavigatorItems(validateOnLoading, progressCb = updateProgress)
+          .onCancelRaiseError(new CancellationException("generateNavigatorItems() was cancelled")).runAsync
+
+        runLater {
+          updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](generateItemsTaskId) { currentTask =>
+            Some(currentTask.copy(cancelable = Some(createNavigatorItemsTaskFuture)))
           }
-        })
+        }
 
-      case archiveSrc: PoolSourceArchive =>
-        val extractedToDir = Files.createTempDirectory(_settings.archiveExtractionTarget.value.get.toPath,
-          archiveSrc.path.toFile.getName).toFile
-        archiveExtractionTargetTempDir = Some(extractedToDir)
-        extractedToDir.deleteOnExit()
-        _archiveDirProp.set(Option(extractedToDir))
+        createNavigatorItemsTaskFuture.onComplete { tr =>
+          tr match {
+            case Success(navTreeItems) =>
+              logger.info(s"generateNavigatorItems() succeeded - #items: ${navTreeItems.size}, duration: ${Duration.between(tsBeforeGenNavItems, Instant.now()).toMillis} ms")
+              updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](generateItemsTaskId)(_ => None)
+              runLater {
+                navigatorContentRoot.setValue(ArchiveNavigatorItem(
+                  relativePath = Paths.get(""),
+                  displayName = poolSourceProp.getValue.get.path.toFile.getName,
+                  poolSource = poolSourceProp.getValue.get,
+                  isValid = None,
+                  validationState = ValidationState.NotValidated
+                ))
 
-        val progressInfoHandler = (info : ArchiveReader.ProgressInfo) => {
-          _backgroundTaskInfoProp.getValue match {
-            case Some(task@AsyncTask(extractArchiveTaskId, _,_,_,_)) =>
-              if(! task.task.isCancelled){
-                val progressVal = info.extractedOrdersCount.toDouble / info.totalOrdersCount.toDouble
-                runLater {
-                  _backgroundTaskInfoProp.setValue(Some(task.copy(progress = progressVal)))
+                updateValidationEnabledProps()
+                if (validateOnLoading) {
+                  updateValidationState()
+                  updateValidationViewItems()
+                }
+                logger.info(s"loadPoolImpl()..set orderDir NavTreeItems")
+                _navigatorContentRootProp.setValue(None) //IMPORTANT, otherwise the TreeView will stuck with high #navTreeItems 
+                navigatorContentRoot.filteredChildren_source.setAll(navTreeItems.asJavaCollection)
+                logger.info(s"loadPoolImpl()..set orderDir NavTreeItems..finished")
+                _appStateProp.setValue(AppState.Loaded)
+                updateValidationViewState()
+                _navigatorContentRootProp.setValue(Some(navigatorContentRoot))
+              }
+              if (validateOnLoading) {
+                validatePoolTimestamp(navTreeItems.map(x => x.getValue).collect{ case item: OrderDirNavigatorItem  => item.orderId}.toVector)
+              }
+
+            case Failure(t) =>
+              Option(t).collect { case c: CancellationException => c }.fold(
+                logger.error(s"loadPoolSourceImpl - task.onFailure: ${t.getMessage}")
+              )(c =>
+                logger.info(s"loadPoolSourceImpl - cancelled by user: ${c.getMessage}")
+              )
+              runLater {
+                updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](generateItemsTaskId)(_ => None)
+                setCurrentBackgroundTask(None)
+                updateValidationEnabledProps()
+                resetModelState()
+                updateValidationViewState()
+                if (!t.isInstanceOf[CancellationException]) {
+                  publishErrorEvents(ErrorMsg(s"Failed to load ${poolSource.getClass.getSimpleName} ${poolSource.path.toString}", detail = Some(t.getMessage), exception = Some(t)))
                 }
               }
-            case _ =>
           }
         }
-
-        val extractArchiveFut = archiveReader.extractArchive(sourceFile = archiveSrc.path.toFile, destDir = extractedToDir, progressInfoHandler)
-
-        setCurrentBackgroundTask(Some(AsyncTask(ApplicationModel.extractArchiveTaskId, extractArchiveFut,
-          description="extract pool archive", cancellable = true, progress = 0)))
-
-        val mapping = new CancellableMappingAI[Try[File], IndexedSeq[TreeItemExt[NavigatorItem]]]( (file) => {
-          logger.info(s"loadPoolImpl()..extracted ${archiveSrc.path}")
-          runLater{
-            setCurrentBackgroundTask(None)
-          }
-          file match {
-            case Success(f) =>
-              generateNavigatorItems(f.toPath)
-            case Failure(t) =>
-              throw new Exception("extractAsync failed: " + t.getMessage, t)
-          }
-        })
-
-        val generateTreeItemTask: Task[IndexedSeq[TreeItemExt[NavigatorItem]]] = extractArchiveFut.map(mapping)
-        generateTreeItemTask
+      case Failure(t) =>
+        logger.error(s"resourceProvider.init() failed: ${t.getMessage}", t)
     }
-
-    createItemsFuture.onComplete{tr =>
-      tr match {
-        case Success(navTreeItems) =>
-          logger.info("loadPoolImpl task.onSuccess")
-          runLater {
-            updateValidationEnabledProps()
-            logger.debug("loadPoolImpl task.onSuccess runLater")
-
-            navigatorContentRoot.setValue(
-              ArchiveNavigatorItem(path = archiveDirProp.getValue.get.toPath,
-                poolSource = poolSourceProp.getValue.get,
-                isValid = None,
-                displayName = poolSourceProp.getValue.get.path.toFile.getName,
-                validationState = ValidationState.NotValidated)
-            )
-
-            logger.info(s"loadPoolImpl()..set orderDir NavTreeItems")
-
-            navigatorContentRoot.filteredChildren_source.setAll(navTreeItems.toIndexedSeq: _*)
-            logger.info(s"loadPoolImpl()..set orderDir NavTreeItems..finished")
-            _appStateProp.setValue(AppState.Loaded)
-            updateValidationViewState()
-            _navigatorContentRootProp.setValue(Some(navigatorContentRoot))
-          }
-          logger.info("retValPromise.success()")
-          retValPromise.success()
-
-        case Failure(t) =>
-          logger.error(s"loadPoolImpl task.onFailure: ${t.getMessage}")
-          runLater {
-            logger.error(s"loadPoolImpl task.onFailure: ${t.getMessage} runLater")
-            setCurrentBackgroundTask(None)
-            updateValidationEnabledProps()
-            resetModelState()
-            updateValidationViewState()
-            val typeStr = poolSource match {
-              case s : PoolSourceArchive => "pool-archive"
-              case _ => "pool-directory"
-            }
-
-            if(! t.isInstanceOf[CancellationException]){
-              publishErrorEvents(ErrorMsg(s"Failed to load $typeStr ${poolSource.path.toString}", detail=Some(t.getMessage), exception = Some(t)))
-            }
-
-          }
-          logger.info("retValPromise.failure()")
-          retValPromise.failure(t)
-      }
-    }
-
-    createItemsFuture.run()
-
-    retValPromise.future
   }
 
-  private def generateNavigatorItems(poolArchivePath: Path): IndexedSeq[TreeItemExt[NavigatorItem]] = {
+  private def generateNavigatorItems(validateOnLoading: Boolean, progressCb: Double => Unit): Task[IndexedSeq[TreeItemExt[NavigatorItem]]] = {
     logger.info(s"generateNavigatorItems()")
+    val tsBefore = Instant.now()
 
-    resourceProvider.getPoolMetadata(poolDirPath = poolArchivePath) match {
-      case Success(metaInfo) =>
-        val drawInfo = DrawDateInfos(archiveDrawDate = metaInfo.drawDate, customDrawDate = None)
-        runLater {
-          _drawDateInfosProp.setValue(Some(drawInfo))
-        }
-      case Failure(f) =>
-        runLater {
-          publishErrorEvents(ErrorMsg(s"Error loading MetaInfos", detail = Some(f.getMessage), exception = Some(f)))
-        }
+    val poolMetadata = resourceProvider.get.getPoolMetadata()
+    poolMetadata match {
+      case Success(metaInfo) => runLater {
+        _drawDateInfosProp.setValue(Some(DrawDateInfos(archiveDrawDate = metaInfo.drawDate, customDrawDate = None)))
+      }
+      case Failure(f) => runLater {
+        publishErrorEvents(ErrorMsg(s"Error loading MetaInfos", detail = Some(f.getMessage), exception = Some(f)))
+      }
     }
 
-    val orderDirsTry = resourceProvider.getOrderDirPaths(poolArchivePath)
-    _totalOrdersCount = orderDirsTry.toOption.map(_.size).getOrElse(0)
+    val validator = validatorFactory.getValidator(resourceProvider.get, credentialsManager, monixScheduler)
 
-    orderDirsTry.map{ orderDirs =>
-      val result = orderDirs.sortBy(_.getFileName.toString).par.map {
-        orderDirPath =>
+    _totalOrdersCount = resourceProvider.get.getOrdersCount().getOrElse(0)
+    logger.info(s"generateNavigatorItems() - resourceProvider.get.getOrderDirPaths() #orders:${_totalOrdersCount}, duration: ${Duration.between(tsBefore, Instant.now())}")
 
-          if (disposed)
-            return IndexedSeq.empty
-
-          //the order-file must be read to add some information to the tree-items (e.g. bets-per-product, retailerOrderReference for searching)
-          val order = resourceProvider.getOrder(orderDirPath)
-          if(order.isFailure)
-            logger.error(s"failed to load order in $orderDirPath", order.failed.get)
-
-          val productInfos = order.toOption.map(createProductInfosFor)
-
-          val navItem = OrderDirNavigatorItem(orderDirPath,
-            displayName=orderDirPath.getFileName.toString,
-            retailerOrderReference = order.map(_.metaData.retailerOrderReference).getOrElse(""),
-            validationState = ValidationState.NotValidated,
-            hasInvalidOrderDocs = false,
-            productInfos = productInfos.orNull)
-          val orderDirItem = new TreeItemExt[NavigatorItem](navItem)
-
-          resourceProvider.getOrderDocPaths(orderDirPath).toOption.foreach{ orderDocFiles =>
-            val orderDocItems = orderDocFiles.toSeq.map {
-              docFilePath =>
-                val docItem = OrderDocNavigatorItem(docFilePath, docFilePath.getFileName.toString)
-                new TreeItemExt[NavigatorItem](docItem)
-            }
-            orderDirItem.filteredChildren_source.setAll(orderDocItems.asInstanceOf[Seq[TreeItemExt[NavigatorItem]]]: _*)
+    val i = new AtomicLong(0)
+    resourceProvider.get.getOrderDocsObservable().mapParallelUnordered(parallelism = Runtime.getRuntime().availableProcessors()) {
+      case Success(docsForOneOrder) =>
+        Task {
+          val orderDirItem = generateNavigatorItemsForOneOrder(docsForOneOrder)
+          val progressPercent: Double = Math.round((i.incrementAndGet() / _totalOrdersCount.toDouble) * 100.0) / 100.0
+          if (progressPercent != backgroundTaskInfoProp.value.map(_.progress).getOrElse(0)) {
+            progressCb(progressPercent)
           }
-          orderDirItem
+          if (validateOnLoading) {
+            val vr = validator.validateOrderDocs(docsForOneOrder, getDrawTime, poolMetadata)
+            updateValidationStatsThreadSafe(vr)
+            attachValidationResults(orderDirItem, vr)
+          }
+          Some(orderDirItem)
+        }
+
+      case Failure(t) =>
+        logger.error(s"failed to get OrderDocs: ${t.getMessage}", t)
+        Task.pure(None)
+    }.collect { case Some(treeItem) => treeItem }
+      .foldLeftL(IndexedSeq.newBuilder[TreeItemExt[NavigatorItem]]) { case (seqBuilder, elem) => seqBuilder += elem }
+      .map(_.result().sortBy(_.getValue.displayName))
+  }
+
+  private def generateNavigatorItemsForOneOrder(docsForOneOrder: OrderDocs): TreeItemExt[NavigatorItem] = {
+    val order = docsForOneOrder.order
+    if (order.isFailure)
+      logger.error(s"failed to load order in ${docsForOneOrder.orderId}", order.failed.get)
+    val navItem = OrderDirNavigatorItem(
+      relativePath = Paths.get(docsForOneOrder.orderId),
+      retailerOrderReference = order.map(_.metaData.retailerOrderReference).getOrElse(""),
+      validationState = ValidationState.NotValidated,
+      hasInvalidOrderDocs = false,
+      productInfos = order.toOption.map(createProductInfosFor))
+    val orderDirItem = new TreeItemExt[NavigatorItem](navItem)
+
+    docsForOneOrder.getAll.foreach { orderDocTry =>
+      orderDocTry.foreach { orderDoc => 
+        orderDirItem.filteredChildren_source.add(new TreeItemExt[NavigatorItem](OrderDocNavigatorItem(relativePath = orderDoc.docPath)))
       }
-      logger.info(s"generateNavigatorItems()..finished")
-      result.seq.toIndexedSeq
-    }.toOption.getOrElse(IndexedSeq.empty)
+    }
+    orderDirItem
   }
 
   private def createProductInfosFor(order: Order): ProductInfos = {
@@ -422,7 +417,6 @@ class ApplicationModel(archiveReader : ArchiveReader,
     _drawDateInfosProp.setValue(None)
     _appStateProp.setValue(AppState.Undefined)
     _poolSourceProp.setValue(None)
-    _archiveDirProp.set(None)
     _navigatorContentRootProp.setValue(None)
     navigatorContentRoot.setValue(null)
     navigatorContentRoot.filteredChildren_source.clear()
@@ -433,12 +427,9 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
     updateValidationEnabledProps()
     _validationViewItemsProp.clear()
-
-    Future {
-      archiveExtractionTargetTempDir.foreach { archiveTempDir =>
-        deleteArchiveTargetTmpDir(isAsync = true)
-      }
-    }
+    val resultFuture = resourceProvider.map(_.dispose()).getOrElse(Future.successful())
+    resourceProvider = None
+    resultFuture
   }
 
   def setValidationViewFilterOptions(filterProps: ValidationViewFilterOptions): Unit = {
@@ -504,7 +495,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
   /**
     * Delivers the drawTime for validation, no matter if it is the drawtime from `metadata.json` or a user-defined one.
     * */
-  private def getDrawTime : Try[Instant] = {
+  private def getDrawTime: Try[Instant] = {
     drawDateInfosProp.getValue match {
       case Some(drawDateInfo) =>
         Success(drawDateInfo.customDrawDate.getOrElse(drawDateInfo.archiveDrawDate).toInstant)
@@ -512,11 +503,9 @@ class ApplicationModel(archiveReader : ArchiveReader,
     }
   }
 
-  private def updateValidationState(): Unit = {
-
+  private[model] def updateValidationState(): Unit = {
     val totalCount = getTotalOrdersCount
-
-    val validationState = getValidatedOrdersCount match {
+    val validationState = validationStats.validatedOrdersCount match {
       case 0 => ValidationState.NotValidated
       case x if x < totalCount => ValidationState.PartiallyValidated
       case `totalCount` => ValidationState.CompletelyValidated
@@ -524,42 +513,38 @@ class ApplicationModel(archiveReader : ArchiveReader,
     }
 
     _validationStateProp.setValue(validationState)
-
     val newArchiveItem: NavigatorItem = navigatorContentRoot.getValue match {
       case archiveItem: ArchiveNavigatorItem =>
         val archiveValid = validationState match {
           case ValidationState.NotValidated => None
           case ValidationState.PartiallyValidated =>
-            if ((getInvalidOrdersCount > 0) || hasPoolValidationErrors) Some(false) else None
+            if ((validationStats.invalidOrdersCount > 0) || hasPoolValidationErrors) Some(false) else None
           case ValidationState.CompletelyValidated =>
-            Some( (getTotalOrdersCount == getValidOrdersCount) && ! hasPoolValidationErrors)
+            Some((getTotalOrdersCount == validationStats.validOrdersCount) && !hasPoolValidationErrors)
         }
         archiveItem.copy(validationState = validationState, isValid = archiveValid)
       case x =>
         sys.error(s"unexpected navigatorContentRoot.getValue: ${navigatorContentRoot.getValue}")
     }
-
     navigatorContentRoot.setValue(newArchiveItem)
   }
 
   /**
     * The selected item is a snapshot of a certain TreeItemExt.value it has to be updated
     * when `navigatorContentRoot` or any of its children is updated.
-    * */
+    **/
   private def updateSelectedNavigatorItem(): Unit = {
-
     // find the navTreeItem for the the currently selected NavigatorItem
-    val navTreeItem : Option[TreeItemExt[_ <: NavigatorItem]] = selectedNavigatorItemProp.getValue match {
-      case Some(selectedItem : ArchiveNavigatorItem) =>
+    val navTreeItem: Option[TreeItemExt[_ <: NavigatorItem]] = selectedNavigatorItemProp.getValue match {
+      case Some(selectedItem: ArchiveNavigatorItem) =>
         Option(navigatorContentRoot)
-      case Some(selectedItem : OrderDirNavigatorItem) =>
-        findOrderDirNavTreeItem(selectedItem.path)
-      case Some(selectedItem : OrderDocNavigatorItem) =>
-        val orderDirPath = selectedItem.path.getParent
-        findOrderDirNavTreeItem(orderDirPath) match{
+      case Some(selectedItem: OrderDirNavigatorItem) =>
+        findOrderDirNavTreeItem(selectedItem.relativePath)
+      case Some(selectedItem: OrderDocNavigatorItem) =>
+        val orderDirPath = selectedItem.relativePath.getParent
+        findOrderDirNavTreeItem(orderDirPath) match {
           case Some(orderDirTreeItem) =>
-            val tmp = orderDirTreeItem.filteredChildren_source.find(_.getValue.path == selectedItem.path)
-            tmp
+            orderDirTreeItem.filteredChildren_source.find(_.getValue.relativePath == selectedItem.relativePath)
           case _ => None
         }
       case _ => None
@@ -568,12 +553,11 @@ class ApplicationModel(archiveReader : ArchiveReader,
   }
 
   private def createArchiveDetailData(): Try[ArchiveDetailData] = {
-
-    archiveDirProp.getValue.map{ archiveDir =>
-      resourceProvider.getPoolMetadata(archiveDir.toPath).map { poolMetaInfos =>
+    poolSourceProp.getValue.map { poolSource =>
+      resourceProvider.get.getPoolMetadata().map { poolMetaInfos =>
         val productInfos = navigatorContentRoot.filteredChildren_source.collect {
           case NavigatorTreeItem(orderDirNavItem: OrderDirNavigatorItem) => orderDirNavItem
-        }.map(_.productInfos)
+        }.flatMap(_.productInfos)
 
         var betsCountPerProduct = Map.empty[GamingProductId, Int]
 
@@ -587,102 +571,59 @@ class ApplicationModel(archiveReader : ArchiveReader,
         val orderStats = ArchiveDetailData.OrderStats(totalOrdersCount = getTotalOrdersCount,
           betsCountPerProduct = Some(betsCountPerProduct))
 
-        val poolDigestTimestamp = resourceProvider.getPoolDigestTimestamp(archiveDir.toPath).map(_.rawData)
+        val poolDigestTimestamp = resourceProvider.get.getPoolDigestTimestamp().map(_.rawData)
 
         ArchiveDetailData(poolSource = poolSourceProp.getValue.get,
           poolMetadata = poolMetaInfos,
           poolDigestTimestamp = poolDigestTimestamp.toOption,
           orderStats = orderStats,
-          extractedToDir = archiveDirProp.value.get.toPath,
+          extractedToDir = poolSource.path,
           validationState = validationStateProp.getValue,
           totalOrdersCount = getTotalOrdersCount,
-          validatedOrdersCount = getValidatedOrdersCount,
-          validOrdersCount = getValidOrdersCount,
-          invalidOrdersCount = getInvalidOrdersCount
+          validatedOrdersCount = validationStats.validatedOrdersCount,
+          validOrdersCount = validationStats.validOrdersCount,
+          invalidOrdersCount = validationStats.invalidOrdersCount
         )
       }
-    }.getOrElse(Failure(new Exception("archiveDirProp.getValue is undefined")))
+    }.getOrElse(Failure(new Exception("poolSourceProp.getValue is undefined")))
   }
 
   private def updateDetailData(): Unit = {
-
     val detailData: Option[DetailData] = selectedNavigatorItemProp.getValue match {
       case Some(sel: ArchiveNavigatorItem) =>
-
-        val archiveDetailData = if(_cachedArchiveDetailData.nonEmpty) _cachedArchiveDetailData else {
+        val archiveDetailData = if (_cachedArchiveDetailData.nonEmpty) _cachedArchiveDetailData else {
           _cachedArchiveDetailData = createArchiveDetailData().toOption
           _cachedArchiveDetailData
         }
-
-        archiveDetailData.map{oldArchiveDetailData =>
+        archiveDetailData.map { oldArchiveDetailData =>
           oldArchiveDetailData.copy(
             validationState = validationStateProp.getValue,
             totalOrdersCount = getTotalOrdersCount,
-            validatedOrdersCount = getValidatedOrdersCount,
-            validOrdersCount = getValidOrdersCount,
-            invalidOrdersCount = getInvalidOrdersCount
+            validatedOrdersCount = validationStats.validatedOrdersCount,
+            validOrdersCount = validationStats.validOrdersCount,
+            invalidOrdersCount = validationStats.invalidOrdersCount
           )
         }
 
       case Some(sel: OrderDirNavigatorItem) =>
-        Option(OrderDirectoryDetailData(path = sel.path,
-          orderId = sel.path.getFileName.toString,
+        val path = poolSourceProp.value.map(_.path.resolve(sel.relativePath)).getOrElse(sel.relativePath)
+        Option(OrderDirectoryDetailData(path = path,
+          orderId = sel.displayName,
           validationState = sel.validationState,
           hasInvalidOrderDocs = sel.hasInvalidOrderDocs,
           validationResults = sel.validationResults,
           productInfos = sel.productInfos))
 
       case Some(sel: OrderDocNavigatorItem) =>
-        
-        val detailDataOrError: Either[DetailData, ErrorMsg] = sel.path.toFile.getName match {
-          case Filenames.Order =>
-            resourceProvider.getOrder(sel.path.getParent) match {
-              case Success(data) => Left(OrderDocDetailData(data))
-              case Failure(t) => Right(ErrorMsg("Failed to load order detail data", Some(t.getMessage)))
-            }
-          case Filenames.OrderResult =>
-            resourceProvider.getOrderResult(sel.path.getParent) match {
-              case Success(data) => Left(OrderDocDetailData(data))
-              case Failure(t) => Right(ErrorMsg("Failed to load order.result detail data", Some(t.getMessage)))
-            }
-          case Filenames.OrderResultSignature =>
-            resourceProvider.getOrderResultSignature(sel.path.getParent) match {
-              case Success(data) => Left(OrderDocDetailData(data))
-              case Failure(t) => Right(ErrorMsg("Failed to load order.result.signature detail data", Some(t.getMessage)))
-            }
-          case Filenames.OrderResultSignatureTimestamp =>
-            resourceProvider.getOrderResultSignatureTimestamp(sel.path.getParent) match {
-              case Success(data) => Left(OrderDocDetailData(data))
-              case Failure(t) => Right(ErrorMsg("Failed to load order.result.signature.timestamp detail data", Some(t.getMessage)))
-            }
-          case Filenames.OrderSignature =>
-            resourceProvider.getOrderSignature(sel.path.getParent) match {
-              case Success(data) => Left(OrderDocDetailData(data))
-              case Failure(t) => Right(ErrorMsg("Failed to load order.signature detail data", Some(t.getMessage)))
-            }
-          case Filenames.OrderMetadata =>
-            val order = resourceProvider.getOrder(sel.path.getParent)
-            val orderMetadata = resourceProvider.getOrderMetadata(sel.path.getParent)
-
-            val detailData: Try[OrderHedgingDetailData] = for{o <- order; omd <- orderMetadata} yield {
-              OrderHedgingDetailData(o, omd.hedgingData, OrderHedgingDetailData.RowData.create(o, omd.hedgingData)              )
-            }
-            
-            detailData match {
-              case Success(detailData) => Left(detailData)
-              case Failure(f) => 
-                Right( ErrorMsg("Failed to load order.metadata details", 
-                  Some(Seq(order, orderMetadata).filter(_.isFailure).map(_.failed.get.getMessage).mkString("\n")))
-                )
-            }
-          case f =>
-            Right(ErrorMsg(s"unexpected filename: $f"))
-        }
-
+        val orderId = sel.relativePath.getParent.getFileName.toString
+        val detailDataOrError: Either[ErrorMsg, DetailData] = createOrderDocDetailData(orderId, orderDocFileName = sel.displayName)
         Some(
           detailDataOrError.fold(
-            detailData => detailData,
-            errorMsg => DetailDataLoadingError(errorMsg)
+            errorMsg => {
+              logger.error(s"failed to load DetailData: ${errorMsg}")
+              DetailDataLoadingError(errorMsg)
+            },
+            detailData => detailData
           )
         )
       case _ => None
@@ -690,16 +631,59 @@ class ApplicationModel(archiveReader : ArchiveReader,
     _orderDocDetailDataProp.setValue(detailData)
   }
 
+  private def createOrderDocDetailData(orderId: OrderId, orderDocFileName: String): Either[ErrorMsg, DetailData] = {
+    val detailDataOrError: Either[ErrorMsg, DetailData] = orderDocFileName match {
+      case Filenames.Order =>
+        resourceProvider.get.getOrder(orderId) match {
+          case Success(data) => Right(OrderDocDetailData(data))
+          case Failure(t) => Left(ErrorMsg("Failed to load order detail data", Some(t.getMessage)))
+        }
+      case Filenames.OrderResult =>
+        resourceProvider.get.getOrderResult(orderId) match {
+          case Success(data) => Right(OrderDocDetailData(data))
+          case Failure(t) => Left(ErrorMsg("Failed to load order.result detail data", Some(t.getMessage)))
+        }
+      case Filenames.OrderResultSignature =>
+        resourceProvider.get.getOrderResultSignature(orderId) match {
+          case Success(data) => Right(OrderDocDetailData(data))
+          case Failure(t) => Left(ErrorMsg("Failed to load order.result.signature detail data", Some(t.getMessage)))
+        }
+      case Filenames.OrderResultSignatureTimestamp =>
+        resourceProvider.get.getOrderResultSignatureTimestamp(orderId) match {
+          case Success(data) => Right(OrderDocDetailData(data))
+          case Failure(t) => Left(ErrorMsg("Failed to load order.result.signature.timestamp detail data", Some(t.getMessage)))
+        }
+      case Filenames.OrderSignature =>
+        resourceProvider.get.getOrderSignature(orderId) match {
+          case Success(data) => Right(OrderDocDetailData(data))
+          case Failure(t) => Left(ErrorMsg("Failed to load order.signature detail data", Some(t.getMessage)))
+        }
+      case Filenames.OrderMetadata =>
+        val order = resourceProvider.get.getOrder(orderId)
+        val orderMetadata = resourceProvider.get.getOrderMetadata(orderId)
+        val detailData: Try[OrderHedgingDetailData] = for {o <- order; omd <- orderMetadata} yield {
+          OrderHedgingDetailData(o, omd.hedgingData, OrderHedgingDetailData.RowData.create(o, omd.hedgingData))
+        }
+        detailData match {
+          case Success(detailData) => Right(detailData)
+          case Failure(f) =>
+            Left(ErrorMsg("Failed to load order.metadata details",
+              Some(Seq(order, orderMetadata).filter(_.isFailure).map(_.failed.get.getMessage).mkString("\n")))
+            )
+        }
+      case f =>
+        Left(ErrorMsg(s"unexpected filename: $f"))
+    }
+    detailDataOrError
+  }
+
   private def updateValidationViewItems(): Unit = {
-
     logger.debug(s"updateValidationViewItems()..size before: ${validationViewItemsProp.getValue.size()}")
-
     _validationViewStateProp.setValue(ValidationViewState.PreparingData)
-
     selectedNavigatorItemProp.getValue match {
       case Some(item: ArchiveNavigatorItem) =>
         // show ValidationResults for the whole archive
-        findTreeItemForFile(navigatorContentRoot, item.path) match {
+        findTreeItemForFile(navigatorContentRoot, item.relativePath) match {
           case Some(archiveTreeItem) =>
             val orderValidationItemBuilder = Seq.newBuilder[ValidationViewItem]
             orderValidationItemBuilder.sizeHint(getTotalOrdersCount)
@@ -713,27 +697,23 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
               if (vResults_singleOrder.nonEmpty) {
                 val structuralItem_orderDir = ValidationViewStructuralItem(result = None, PoolResource.PRType.OrderDirectory,
-                  name = orderTreeItem.getValue.path.toFile.getName, level = 2)
-                orderValidationItemBuilder ++= structuralItem_orderDir +: vResults_singleOrder.toSet.toSeq
+                  name = orderTreeItem.getValue.relativePath.toFile.getName, level = 2)
+                orderValidationItemBuilder ++= structuralItem_orderDir +: vResults_singleOrder
               }
             }
-
             val orderValidationItems = orderValidationItemBuilder.result()
-
             val structuralItem_pool = ValidationViewStructuralItem(result = None, PoolResource.PRType.PoolDirectory,
-              name = archiveTreeItem.getValue.path.toFile.getName, level = 1)
-
-            val poolValidationItems = navigatorContentRoot.getValue.validationResults.map{ checkResult =>
+              name = archiveTreeItem.getValue.relativePath.toFile.getName, level = 1)
+            val poolValidationItems = navigatorContentRoot.getValue.validationResults.map { checkResult =>
               ValidationViewStateItem(checkResult, level = 1)
             }
+            _validationViewItemsProp.setAll((structuralItem_pool +: poolValidationItems) ++ orderValidationItems: _*)
 
-            _validationViewItemsProp.setAll( (structuralItem_pool +: poolValidationItems) ++ orderValidationItems: _*)
-
-          case _ => logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
+          case _ =>
+            logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
         }
       case Some(item: OrderDirNavigatorItem) =>
-        // show ValidationResults for the selected order (directory)
-        findTreeItemForFile(navigatorContentRoot, item.path) match {
+        findTreeItemForFile(navigatorContentRoot, item.relativePath) match {
           case Some(navTreeItem) =>
 
             val journalItems = collectValidationStateItemsForOrder(orderDirTreeItem = navTreeItem,
@@ -742,28 +722,28 @@ class ApplicationModel(archiveReader : ArchiveReader,
               level = 2)
 
             if (journalItems.nonEmpty) {
-
               val orderDirJItem = ValidationViewStructuralItem(
                 result = None,
                 PoolResource.PRType.OrderDirectory,
-                name = item.path.toFile.getName,
+                name = item.relativePath.toFile.getName,
                 level = 1
               )
-
               _validationViewItemsProp.setAll(orderDirJItem +: journalItems.toSet.toSeq: _*)
             } else {
               _validationViewItemsProp.clear()
             }
-          case _ => logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
+          case _ =>
+            logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
         }
       case Some(item: OrderDocNavigatorItem) =>
         // show ValidationResults related to the selected OrderDoc
-        findTreeItemForFile(navigatorContentRoot, item.path) match {
+        findTreeItemForFile(navigatorContentRoot, item.relativePath) match {
           case Some(navTreeItem) =>
             val validationResults = navTreeItem.getValue.validationResults
             val journalItems = validationResults.map(ValidationViewStateItem(_, level = 1))
             _validationViewItemsProp.setAll(journalItems.toSet.toSeq.asInstanceOf[Seq[ValidationViewItem]]: _*)
-          case _ => logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
+          case _ =>
+            logger.error(s"updateValidationViewItems()..no TreeItem found for $item")
         }
 
       case _ =>
@@ -783,7 +763,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
         selectedNavigatorItemProp.getValue match {
           case None => ValidationViewState.NoItemSelected
           case Some(archiveItem: ArchiveNavigatorItem) =>
-            if (getValidatedOrdersCount > 0) {
+            if (validationStats.validatedOrdersCount > 0) {
               if (getVisibleOrdersCount > 0)
                 ValidationViewState.ValidationResultsAvailable
               else
@@ -805,9 +785,9 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
 
   private def collectValidationStateItemsForOrder(orderDirTreeItem: TreeItem[NavigatorItem],
-                                                  collectErrors: Boolean,
-                                                  collectValidationOk: Boolean,
-                                                  level: Int): Seq[ValidationViewItem] = {
+    collectErrors: Boolean,
+    collectValidationOk: Boolean,
+    level: Int): Seq[ValidationViewItem] = {
     val orderDirVResults = orderDirTreeItem.getValue.validationResults.collect {
       case e: CheckFailure if (collectErrors) => ValidationViewStateItem(e, level = level)
       case e: CheckOk if (collectValidationOk) => ValidationViewStateItem(e, level = level)
@@ -817,69 +797,72 @@ class ApplicationModel(archiveReader : ArchiveReader,
       case e: CheckFailure if (collectErrors) => ValidationViewStateItem(e, level = level)
       case e: CheckOk if (collectValidationOk) => ValidationViewStateItem(e, level = level)
     }
-    orderDirVResults ++ docVResults
+    //remove duplicates since some validation results appear as well on the order-level as on the order-document level
+    (orderDirVResults ++ docVResults).toSet.toIndexedSeq
   }
 
   def resetValidationResults(): Unit = resetAllValidationStateInfos()
 
 
-  def validateParticipationPool(): Future[ValidationState.Value] = {
-    if(getValidatedOrdersCount > 0){
+  def validateParticipationPool(): Unit = {
+    if (validationStats.validatedOrdersCount > 0) {
       resetAllValidationStateInfos()
     }
     _appStateProp.value = AppState.Validating
     updateValidationEnabledProps()
     logger.info(s"validateParticipationPool()..#orderDocFiles: ${getTotalOrdersCount}")
 
-    val returnValPromise = Promise[ValidationState.Value]()
+    val validationTaskId = UUID.randomUUID()
+    setCurrentBackgroundTask(Some(CancelableMonixTask(cancelable = None, BackgroundTaskDescription_validatePool, id = validationTaskId)))
 
     val orderValidationCallback = new IntermediateResultCallback {
       override def onOrderValidated(result: OrderValidationResult, countValidatedOrders: Int): Unit = {
+        val validationTaskRunning = backgroundTaskInfoProp.getValue match {
+          case Some(task: CancelableMonixTask) if task.id == validationTaskId =>
+            val newProgress = Math.round((countValidatedOrders / getTotalOrdersCount.toDouble) * 100.0) / 100.0
 
-        val validationTaskRunning = _backgroundTaskInfoProp.getValue match {
-          case Some(task@AsyncTask(validatePoolTaskId,_,_,_,_)) =>
-            val progressPercent = (countValidatedOrders.toDouble / getTotalOrdersCount.toDouble)
-            val isCanceled = task.task.isCancelled
-            if(! isCanceled){
-              runLater {
-                _backgroundTaskInfoProp.setValue(Some(task.copy(progress = progressPercent)))
-                integrateOrderValidationResults(result, doUpdateValidationViewItems=false)
-              }
+            updateBackgroundTaskInfoPropIfSoConditioned[CancelableMonixTask](
+              validationTaskId, condition = _.progress != newProgress
+            ) { oldTaskInfo =>
+              Some(oldTaskInfo.withUpdatedProgress(newProgress))
             }
-            isCanceled
+
+            runLater {
+              integrateOrderValidationResults(result, doUpdateValidationViewItems = false)
+            }
+            true
           case _ =>
             false
         }
       }
     }
 
+    val validationTaskFuture: CancelableFuture[ArchiveValidationResult] = validatorFactory
+      .getValidator(resourceProvider.get, credentialsManager, monixScheduler)
+      .validatePool(getDrawTime, orderValidationCallback)
+      .onCancelRaiseError(new CancellationException("validatePool() was cancelled")).runAsync
 
-    val drawTime = drawDateInfosProp.getValue
+    runLater {
+      updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](validationTaskId) { oldTask =>
+        Some(oldTask.copy(cancelable = Some(validationTaskFuture)))
+      }
+    }
 
-    val validationTask = validator.validatePool(archiveDirProp.value.get.toPath, getDrawTime, orderValidationCallback)
-
-    setCurrentBackgroundTask(Some(AsyncTask(validatePoolTaskId, validationTask, description="validate pool",
-      cancellable = true,progress = 0))
-    )
-
-    validationTask.run()
-
-    validationTask.onComplete{ result =>
-      logger.info(s"validateParticipationPool().Task.onComplete: $result")
+    validationTaskFuture.onComplete { result =>
+      logger.info(s"validateParticipationPool().Task completed")
       runLater {
         setCurrentBackgroundTask(None)
         _appStateProp.value = AppState.Loaded
-
         result match {
-          case Success(poolValidationResult) =>
+          case Success(archiveValidationResult) =>
             logger.info(s"validateParticipationPool.Task.onComplete()..SUCCESS")
-            integratePoolValidationResults(poolValidationResult)
+            integratePoolValidationResults(archiveValidationResult.poolValidationResults)
 
           case Failure(t) =>
             resetAllValidationStateInfos()
             t match {
               case e: CompletionException => Option(e.getCause) match {
-                case Some(e: CancellationException) =>
+                case Some(c: CancellationException) =>
                   logger.info(s"validation cancelled by user")
                 case _ =>
                   publishErrorEvents(ErrorMsg("Validation failed", detail = Some(t.getMessage)))
@@ -897,25 +880,54 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
         updateValidationViewItems()
       }
-      logger.info("validateParticipationPool()..returnValPromise.success()")
-      returnValPromise.success(validationStateProp.getValue)
     }
-
     logger.debug("validateParticipationPool()..method FINISHED")
-    returnValPromise.future
   }
 
-  private def setCurrentBackgroundTask[T](task: Option[AsyncTask[T]]): Unit = {
+  private def setCurrentBackgroundTask[T](task: Option[TaskInfo]): Unit = {
     logger.info(s"setCurrentBackgroundTask($task)")
-    if(task.nonEmpty)
-      require(_backgroundTaskInfoProp.getValue.isEmpty, s"backgroundTask is not empty: ${_backgroundTaskInfoProp.getValue}")
+    if (task.nonEmpty && backgroundTaskInfoProp.getValue.nonEmpty) {
+      logger.error(s"setCurrentBackgroundTask($task) - backgroundTask is not empty: ${_backgroundTaskInfoProp.getValue}")
+    }
     _backgroundTaskInfoProp.setValue(task)
   }
 
-  def validateSingleOrder(item: NavigatorItem): Unit = {
+  private def updateBackgroundTaskInfoPropIfSo[T <: TaskInfo : ClassTag](id: TaskId)(fUpdate: T => Option[T]): Unit = {
+    updateBackgroundTaskInfoPropIfSoConditioned[T](id, condition = _ => true)(fUpdate)
+  }
+
+  private def updateBackgroundTaskInfoPropIfSoConditioned[T <: TaskInfo : ClassTag](id: TaskId, condition: T => Boolean)(fUpdate: T => Option[T]): Unit = {
+    def conditionMet: Boolean = backgroundTaskInfoProp.value match {
+      case Some(task: T) if task.id == id => condition(task)
+      case _ => false
+    }
+    if (conditionMet) {
+      runLaterIfNeeded {
+        if (conditionMet) {
+          _backgroundTaskInfoProp.setValue(fUpdate(backgroundTaskInfoProp.value.get.asInstanceOf[T]))
+        }
+      }
+    }
+  }
+
+  def validateSingleOrder(item: OrderDirNavigatorItem): Unit = {
     logger.info(s"validateSingleOrder($item)")
-    val result = validator.validateOrder(item.path, getDrawTime)
-    integrateOrderValidationResults(result, doUpdateValidationViewItems=true)
+    val orderId = item.relativePath.getFileName.toString
+    val taskId = UUID.randomUUID()
+    setCurrentBackgroundTask(Some(CancelableMonixTask(cancelable = None, s"Validate selected order", id = taskId)))
+    val future = validatorFactory.getValidator(resourceProvider.get, credentialsManager, monixScheduler)
+      .validateOrder(orderId, getDrawTime).onCancelRaiseError(new CancellationException("cancelled")).runAsync
+    future.onComplete {
+      case Success(result) =>
+        updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](taskId)(_ => None)
+        runLater(integrateOrderValidationResults(result, doUpdateValidationViewItems = true))
+      case Failure(t) =>
+        val err = s"Failed validate order $orderId: ${t.getMessage}"
+        logger.error(err, t)
+        updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](taskId)(_ => None)
+        publishErrorEvents(ErrorMsg(err))
+    }
+    updateBackgroundTaskInfoPropIfSo[CancelableMonixTask](taskId)(oldTask => Some(oldTask.copy(cancelable = Some(future))))
   }
 
   def cancelValidation(): Unit = {
@@ -923,52 +935,55 @@ class ApplicationModel(archiveReader : ArchiveReader,
       logger.warn(s"cancelValidation()..nothing to do (appState=${appStateProp.getValue})")
     } else {
       _backgroundTaskInfoProp.getValue match {
-        case Some(task@AsyncTask(validatePoolTaskId,_,_,_,_)) =>
-          task.task.cancel()
-        case x => logger.warn(s"cancelValidation()..no $validatePoolTaskId found!")
+        case Some(task: CancelableMonixTask) if task.description == BackgroundTaskDescription_validatePool =>
+          task.cancelable.foreach(_.cancel())
+        case x => logger.warn(s"cancelValidation()..no isCancellable task '$BackgroundTaskDescription_validatePool' found!")
       }
     }
   }
 
   private def integrateOrderValidationResults(result: OrderValidationResult, doUpdateValidationViewItems: Boolean): Unit = {
-
-    //update order counters
-    val orderWasNotYetValidated = _validatedOrders.add(result.orderLocation)
-    if (orderWasNotYetValidated) {
-      _validatedOrdersCount += 1
-      result.isValid match {
-        case true => _validOrdersCount += 1
-        case false => _invalidOrdersCount += 1
+    findOrderDirNavTreeItem(result.orderLocation) match {
+      case Some(orderDirTreeItem) =>
+        integrateOrderValidationResults(orderDirTreeItem, result, doUpdateValidationViewItems)
+      case _ => logger.error(s"storeOrderValidationResultInNavTree() for ${result.orderId} failed: no TreeItem found")
+    }
+  }
+  
+  private def updateValidationStatsThreadSafe(result: OrderValidationResult): Unit = {
+    _validationStats.synchronized {
+      val orderWasNotYetValidated = validationStats.validatedOrderIds.add(result.orderId)
+      if (orderWasNotYetValidated) {
+        validationStats.validatedOrdersCount += 1
+        result.isValid match {
+          case true => validationStats.validOrdersCount += 1
+          case false => validationStats.invalidOrdersCount += 1
+        }
       }
     }
+    
+  }
 
-    storeOrderValidationResultInNavTree(result)
+  private def integrateOrderValidationResults(
+    orderTreeItem: TreeItemExt[NavigatorItem], result: OrderValidationResult, doUpdateValidationViewItems: Boolean
+  ): Unit = {
+    updateValidationStatsThreadSafe(result)
+    attachValidationResults(orderTreeItem, result)
     updateValidationState()
     updateSelectedNavigatorItem()
-
-    if(doUpdateValidationViewItems) {
+    if (doUpdateValidationViewItems) {
       updateValidationViewItems()
     }
-
     updateDetailData()
     updateValidationViewState()
   }
 
-  def integratePoolValidationResults(poolValidationResult: ArchiveValidationResult): Unit = {
-
+  def integratePoolValidationResults(poolValidationResults: IndexedSeq[CheckResult]): Unit = {
     navigatorContentRoot.getValue match {
       case item: ArchiveNavigatorItem =>
-        val updatedItem = item.copy(validationResults = poolValidationResult.poolValidationResults)
+        val updatedItem = item.copy(validationResults = poolValidationResults)
         navigatorContentRoot.setValue(updatedItem)
       case x => logger.error(s"integratePoolValidationResults() unexpected item: $x")
-    }
-  }
-
-  private def runNowOrLater(runNow: Boolean)(block: => Unit): Unit = {
-    if (runNow) {
-      block
-    } else {
-      runLater(block)
     }
   }
 
@@ -977,58 +992,54 @@ class ApplicationModel(archiveReader : ArchiveReader,
     credentialsManager = credentialsManager.withClearedPublicKeys().withClearedCertificates()
 
     val publicKeyErrors = Seq.newBuilder[ErrorMsg]
-    _settings.credentialsSpecs.publicKeyConfigItems.foreach{ keySpec =>
+    _settings.credentialsSpecs.publicKeyConfigItems.foreach { keySpec =>
       keySpec.file match {
         case UIValue(Some(file), error@None) =>
           val publicKey = Utils.readPublicKeyFromPemFile(file)
-          credentialsManager = credentialsManager.withPublicKey(keyId=keySpec.keyId, algorithm = keySpec.algorithm, key=publicKey)
-          publicKey.failed.foreach{t =>
-            publicKeyErrors += ErrorMsg(s"Error loading public key ${keySpec.keyId}", detail=Some(t.getMessage), exception = Some(t))
+          credentialsManager = credentialsManager.withPublicKey(keyId = keySpec.keyId, algorithm = keySpec.algorithm, key = publicKey)
+          publicKey.failed.foreach { t =>
+            publicKeyErrors += ErrorMsg(s"Error loading public key ${keySpec.keyId}", detail = Some(t.getMessage), exception = Some(t))
           }
         case x =>
           publicKeyErrors += ErrorMsg(s"Error loading public key ${keySpec.keyId}",
-            detail=keySpec.file.error.map(_.message), exception = keySpec.file.error.flatMap(_.exception))
+            detail = keySpec.file.error.map(_.message), exception = keySpec.file.error.flatMap(_.exception))
       }
     }
 
     val certificateErrors = Seq.newBuilder[ErrorMsg]
-    _settings.credentialsSpecs.certConfigItems.foreach{ certSpec =>
+    _settings.credentialsSpecs.certConfigItems.foreach { certSpec =>
       certSpec.file match {
-        case UIValue(Some(file), error@None )=>
+        case UIValue(Some(file), error@None) =>
           val cert = Utils.readX509CertificateFromPemFile(file)
           credentialsManager = credentialsManager.withCertificate(certSpec.name, cert)
-          cert.failed.foreach{t =>
-            certificateErrors += ErrorMsg(s"Error loading certificate ${certSpec.name}", detail=Some(t.getMessage), exception = Some(t))
+          cert.failed.foreach { t =>
+            certificateErrors += ErrorMsg(s"Error loading certificate ${certSpec.name}", detail = Some(t.getMessage), exception = Some(t))
           }
         case _ =>
           certificateErrors += ErrorMsg(s"Error loading loading certificate ${certSpec.name}",
-            detail=certSpec.file.error.map(_.message), exception = certSpec.file.error.flatMap(_.exception))
+            detail = certSpec.file.error.map(_.message), exception = certSpec.file.error.flatMap(_.exception))
       }
     }
 
     val tsCertErrors = Seq.newBuilder[ErrorMsg]
-    val tsCerts: Seq[X509Certificate] = _settings.credentialsSpecs.timestamperCertConfigItems.flatMap{ certSpec =>
+    val tsCerts: Seq[X509Certificate] = _settings.credentialsSpecs.timestamperCertConfigItems.flatMap { certSpec =>
       certSpec.file match {
-        case UIValue(Some(file), error@None )=>
+        case UIValue(Some(file), error@None) =>
           val cert = Utils.readX509CertificateFromPemFile(file)
           credentialsManager = credentialsManager.withCertificate(certSpec.name, cert)
-          cert.failed.foreach{t =>
-            tsCertErrors += ErrorMsg(s"Error loading timestamper certificate ${certSpec.name}", detail=Some(t.getMessage), exception = Some(t))
+          cert.failed.foreach { t =>
+            tsCertErrors += ErrorMsg(s"Error loading timestamper certificate ${certSpec.name}", detail = Some(t.getMessage), exception = Some(t))
           }
           cert.toOption
         case _ =>
           tsCertErrors += ErrorMsg(s"Error loading loading timestamper certificate ${certSpec.name}",
-            detail=certSpec.file.error.map(_.message), exception = certSpec.file.error.flatMap(_.exception))
+            detail = certSpec.file.error.map(_.message), exception = certSpec.file.error.flatMap(_.exception))
           None
       }
     }
-
     credentialsManager = credentialsManager.withTimestamperCertificates(tsCerts)
-
-    validator.setCredentialsProvider(credentialsManager)
-
     val errors = publicKeyErrors.result() ++ certificateErrors.result()
-    if(errors.nonEmpty) {
+    if (errors.nonEmpty) {
       publishErrorEvents(errors: _*)
     }
     updateValidationEnabledProps()
@@ -1042,48 +1053,65 @@ class ApplicationModel(archiveReader : ArchiveReader,
   /**
     * Find the TreeItem for a given order-directory (fast binary search implementation).
     * Expects the tree to be sorted by `File.getName()`.
-    * */
+    **/
   private def findOrderDirNavTreeItem(path: Path): Option[TreeItemExt[NavigatorItem]] = {
     val dummyTreeItem4BinarySearch = new TreeItemExt[NavigatorItem](
-      OrderDirNavigatorItem(path = path, displayName = null, retailerOrderReference = null, validationState=ValidationState.NotValidated,
-        hasInvalidOrderDocs=false, validationResults=IndexedSeq.empty, productInfos=null)
+      OrderDirNavigatorItem(relativePath = path, retailerOrderReference = "", validationState = ValidationState.NotValidated,
+        hasInvalidOrderDocs = false, validationResults = EmptyValidationResults, productInfos = None)
     )
     val index = Collections.binarySearch(navigatorContentRoot.filteredChildren_source, dummyTreeItem4BinarySearch,
       navItemFileNameComparator)
-    val r = if(index < 0) None else Option(navigatorContentRoot.filteredChildren_source.get(index))
-    r
+    if (index < 0) None else Option(navigatorContentRoot.filteredChildren_source.get(index))
   }
 
   /**
     * Stores a single `OrderValidationResult` in the Navigator-tree.
-    * */
+    **/
   private[model] def storeOrderValidationResultInNavTree(result: OrderValidationResult): Unit = {
+    findOrderDirNavTreeItem(result.orderLocation) match {
+      case Some(orderDirTreeItem) =>
+        attachValidationResults(orderDirTreeItem, result)
+      case _ => logger.error(s"storeOrderValidationResultInNavTree() for ${result.orderId} failed: no TreeItem found")
+    }
+  }
+
+  private def attachValidationResults(
+    orderTreeItem: TreeItemExt[NavigatorItem],
+    result: OrderValidationResult
+  ): Unit = {
+
     import PoolResource.PRType.{OrderDirectory, PoolDirectory}
 
-    val orderLevelVResults = result.checkResults.filter(!_.check.affectedResources.contains(OrderDirectory))
     val hasInvalidOrderDocs = result.checkResults.exists(r => !r.isOk && r.check.affectedResources.filterNot(_ == OrderDirectory).nonEmpty)
-    val orderDirTreeItem = findOrderDirNavTreeItem(result.orderLocation)
-
-    orderDirTreeItem.foreach { orderTreeItem =>
-      Option(orderTreeItem.getValue) match {
-        case Some(navItem: OrderDirNavigatorItem) =>
-          val updatedItem = navItem.copy(hasInvalidOrderDocs = hasInvalidOrderDocs,
-            validationResults = orderLevelVResults, validationState = ValidationState.CompletelyValidated)
-            orderTreeItem.setValue(updatedItem)
-        case x => sys.error(s"unexpected NavigatorItem: $x")
+    val orderLevelVResults: IndexedSeq[CheckResult] = {
+      val orderDocValidationResults = result.checkResults.filter(!_.check.affectedResources.contains(OrderDirectory))
+      if (hasInvalidOrderDocs) orderDocValidationResults else {
+        if (AllOrderDocumentValidationsOk.isEmpty) {
+          AllOrderDocumentValidationsOk = Some(orderDocValidationResults)
+        }
+        if (AllOrderDocumentValidationsOk.get == orderDocValidationResults) AllOrderDocumentValidationsOk.get else orderDocValidationResults
       }
+      orderDocValidationResults
+    }
 
-      PoolResource.PRType.values.filterNot(x => Seq(OrderDirectory, PoolDirectory).contains(x)).map {
-        docType =>
-          val docSpecificVResults = result.checkResults.filter(_.check.affectedResources.contains(docType))
-          val docFileName = PoolResource.docTypeToFileName(docType)
-          orderTreeItem.getChildren.find(_.getValue.path.toFile.getName == docFileName) match {
-            case Some(docTreeItem) =>
-              docTreeItem.setValue( docTreeItem.getValue.withValidationResults(docSpecificVResults) )
-            case _ =>
-              logger.debug(s"no docTreeItem found for $docFileName")
-          }
-      }
+    Option(orderTreeItem.getValue) match {
+      case Some(navItem: OrderDirNavigatorItem) =>
+        val updatedItem = navItem.copy(hasInvalidOrderDocs = hasInvalidOrderDocs,
+          validationResults = orderLevelVResults, validationState = ValidationState.CompletelyValidated)
+        orderTreeItem.setValue(updatedItem)
+      case x => sys.error(s"unexpected NavigatorItem: $x")
+    }
+
+    PoolResource.PRType.values.filterNot(x => Seq(OrderDirectory, PoolDirectory).contains(x)).map {
+      docType =>
+        val docSpecificVResults = result.checkResults.filter(_.check.affectedResources.contains(docType))
+        val docFileName = PoolResource.docTypeToFileName(docType)
+        orderTreeItem.getChildren.find(_.getValue.relativePath.toFile.getName == docFileName) match {
+          case Some(docTreeItem) =>
+            docTreeItem.setValue(docTreeItem.getValue.withValidationResults(docSpecificVResults))
+          case _ =>
+            logger.debug(s"no docTreeItem found for $docFileName")
+        }
     }
   }
 
@@ -1092,15 +1120,16 @@ class ApplicationModel(archiveReader : ArchiveReader,
     require(treeItem.value != null, "treeItem.value is null!")
     require(path != null, "file is null!")
 
-    if (!path.startsWith(treeItem.getValue.path)) {
+    val treeItemPath = treeItem.getValue.relativePath
+    if (!treeItemPath.toString.isEmpty && !path.startsWith(treeItem.getValue.relativePath)) {
       None
     } else {
-      if (treeItem.getValue.path == path)
+      if (treeItem.getValue.relativePath == path)
         Some(treeItem)
       else {
         treeItem.filteredChildren_source.find {
           child =>
-            path.startsWith(child.getValue.path)
+            path.startsWith(child.getValue.relativePath)
         } match {
           case Some(child) => findTreeItemForFile(child, path)
           case _ => None
@@ -1139,32 +1168,21 @@ class ApplicationModel(archiveReader : ArchiveReader,
   /**
     * Delivers the initial directory for the `FileChooser` when an archive is to be loaded.
     **/
-  def getArchiveFileSelectorInitialDirectory: Option[Path] = {
-    if (poolSourceProp.value.nonEmpty) Option(poolSourceProp.value.get.path.getParent)
-    else {
-      Option(System.getProperty("user.dir")).map(new File(_).toPath)
-    }
-  }
+  def getArchiveFileSelectorInitialDirectory: Option[Path] = poolSourceProp.value.fold(
+    lastOpenResourcePath.map(Some(_)).getOrElse(Option(System.getProperty("user.dir")).map(new File(_).toPath))
+  )(x => Some(x.path))
+    .map( path => if(path.toFile.isFile) path.getParent else path)
 
   /**
     * Delivers the initial directory for the `DirectoryChooser` when an archive is to be loaded.
     **/
-  def getArchiveDirectorySelectorInitialDirectory: Option[Path] = {
-    if (poolSourceProp.value.nonEmpty) Option(poolSourceProp.value.get.path.getParent)
-    else {
-      Option(System.getProperty("user.dir")).map(new File(_).toPath)
-    }
-  }
+  def getArchiveDirectorySelectorInitialDirectory: Option[Path] = getArchiveFileSelectorInitialDirectory
 
-  def getPoolValidationErrorsCount : Int = Option(navigatorContentRoot.getValue).map(_.validationResults.count(!_.isOk)).getOrElse(0)
+  def getPoolValidationErrorsCount: Int = Option(navigatorContentRoot.getValue).map(_.validationResults.count(!_.isOk)).getOrElse(0)
 
-  def hasPoolValidationErrors : Boolean = getPoolValidationErrorsCount > 0
+  def hasPoolValidationErrors: Boolean = getPoolValidationErrorsCount > 0
 
-  def getInvalidOrdersCount: Int = _invalidOrdersCount
-
-  def getValidOrdersCount: Int = _validOrdersCount
-
-  def getValidatedOrdersCount: Int = _validatedOrdersCount
+  def validationStats: ValidationStats = _validationStats
 
   /**
     * Delivers the total order count of the loaded pool archive (without considering any Navigator-filters).
@@ -1194,11 +1212,11 @@ class ApplicationModel(archiveReader : ArchiveReader,
     }
   }
 
-  def cancelTask(taskId: String): Unit = {
+  def cancelTask(taskId: TaskId): Unit = {
     logger.info(s"cancelTask($taskId)")
     this._backgroundTaskInfoProp.getValue match {
-      case Some(taskInfo) if (taskInfo.id == taskId) =>
-        taskInfo.task.cancel()
+      case Some(taskInfo: CancelableMonixTask) if (taskInfo.id == taskId) =>
+        taskInfo.cancelable.foreach(_.cancel())
       case _ => logger.warn(s"cancelTask() no task found with id=$taskId")
     }
   }
@@ -1208,7 +1226,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
   }
 
   private def updateValidationEnabledProps(): Unit = {
-    val canValidateArchive = archiveDirProp.getValue.nonEmpty && appStateProp.value != AppState.Validating
+    val canValidateArchive = poolSourceProp.getValue.nonEmpty && appStateProp.value != AppState.Validating
     _validateArchiveEnabledProp.setValue(canValidateArchive)
 
     logger.debug(
@@ -1223,10 +1241,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
   }
 
   private def resetCachedArchiveData(): Unit = {
-    _validatedOrders.clear()
-    _validatedOrdersCount = 0
-    _invalidOrdersCount = 0
-    _validOrdersCount = 0
+    _validationStats = new ValidationStats()
     _cachedArchiveDetailData = None
   }
 
@@ -1238,13 +1253,12 @@ class ApplicationModel(archiveReader : ArchiveReader,
 
     _validationViewItemsProp.clear()
     _validationStateProp.setValue(ValidationState.NotValidated)
-    _selectedNavigatorItemProp.value = selectedNavigatorItemProp.value.map(_.withValidationResults(IndexedSeq.empty))
+    _selectedNavigatorItemProp.value = selectedNavigatorItemProp.value.map(_.withValidationResults(EmptyValidationResults))
 
     def udpateTreeItemValue(item: TreeItemExt[NavigatorItem], fUpdate: NavigatorItem => NavigatorItem): Unit = {
       item.setValue(fUpdate(item.getValue))
       item.filteredChildren_source.foreach { childNode => udpateTreeItemValue(childNode, fUpdate) }
     }
-    require(navigatorContentRoot != null, "navigatorContentRoot is null")
 
     if (navigatorContentRoot.getValue != null) {
       udpateTreeItemValue(navigatorContentRoot, fUpdate = _.withoutValidationResults)
@@ -1269,29 +1283,31 @@ class ApplicationModel(archiveReader : ArchiveReader,
     })
   }
 
+  private def runLaterIfNeeded(block: => Unit): Unit = if (Platform.isFxApplicationThread()) block else runLater(block)
 
   /**
     * All-in-one `Predicate[TreeItem[NavigatorItem]]` that combining all filters of the the `NavigatorView`.
     **/
   case class NavigatorFilterChain(private var textFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
-                                  private var hideInvalidOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
-                                  private var hideValidOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
-                                  private var hideUnvalidatedOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
-                                  private val activeFilters: Seq[Predicate[TreeItem[NavigatorItem]]] = Nil
-                                 ) extends Predicate[TreeItem[NavigatorItem]] {
+    private var hideInvalidOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
+    private var hideValidOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
+    private var hideUnvalidatedOrdersFilter: Option[Predicate[TreeItem[NavigatorItem]]] = None,
+    private val activeFilters: Seq[Predicate[TreeItem[NavigatorItem]]] = Nil
+  ) extends Predicate[TreeItem[NavigatorItem]] {
     def withTextFilter(filter: Option[String]): NavigatorFilterChain = {
       textFilter = filter.map {
-        filterStr => genericPredicateOf{treeItem => 
-          val displayNameMatches = treeItem.getValue.displayName.contains(filterStr)
-          val retailerOrderIdMatches : Boolean = if(displayNameMatches) false else {
-            treeItem.getValue match {
-              case o : OrderDirNavigatorItem =>
-                o.retailerOrderReference.contains(filterStr)
-              case  _  => false
-            }             
+        filterStr =>
+          genericPredicateOf { treeItem =>
+            val displayNameMatches = treeItem.getValue.displayName.contains(filterStr)
+            val retailerOrderIdMatches: Boolean = if (displayNameMatches) false else {
+              treeItem.getValue match {
+                case o: OrderDirNavigatorItem =>
+                  o.retailerOrderReference.contains(filterStr)
+                case _ => false
+              }
+            }
+            displayNameMatches || retailerOrderIdMatches
           }
-          displayNameMatches || retailerOrderIdMatches
-        }
       }
       copy(activeFilters = calcActiveFilters)
     }
@@ -1353,28 +1369,8 @@ class ApplicationModel(archiveReader : ArchiveReader,
     }
   }
 
-  private def deleteArchiveTargetTmpDir(isAsync: Boolean): Unit = {
-    archiveExtractionTargetTempDir.foreach { archiveTempDir =>
-      if (archiveTempDir.exists()) {
-        try {
-          logger.info(s"deleteArchiveTargetTmpDir()..deleting $archiveTempDir")
-          FileUtils.deleteDirectory(archiveTempDir)
-          logger.info(s"deleteArchiveTargetTmpDir()..deleted $archiveTempDir.")
-        } catch {
-          case e: Throwable =>
-            runNowOrLater(runNow = !isAsync) {
-              publishErrorEvents(ErrorMsg(s"failed: delete temp-dir ${archiveTempDir.toString}",
-                detail = Some(e.getMessage), exception = Some(e)))
-            }
-        }
-      }
-      archiveExtractionTargetTempDir = None
-    }
-  }
-
   def dispose(): Unit = {
-    disposed=true
-    deleteArchiveTargetTmpDir(isAsync = false)
+    disposed = true
   }
 }
 
@@ -1391,6 +1387,13 @@ object ApplicationModel {
     val NotValidated, PartiallyValidated, CompletelyValidated = Value
   }
 
+  class ValidationStats(
+    val validatedOrderIds: mutable.HashSet[String] = mutable.HashSet.empty[String],
+    var validatedOrdersCount: Int = 0,
+    var invalidOrdersCount: Int = 0,
+    var validOrdersCount: Int = 0
+  )
+  
   sealed trait PoolSource {
     def path: Path
   }
@@ -1399,29 +1402,23 @@ object ApplicationModel {
 
   case class PoolSourceArchive(path: Path) extends PoolSource
 
+  type TaskId = UUID
 
-  trait TaskInfo{
-    def id : String
-    def description : String
-    def cancellable : Boolean
-    def progress : Double
+  trait TaskInfo {
+    def id: TaskId
+
+    def description: String
+
+    def isCancellable: Boolean
+
+    def progress: Double
+
+    def withUpdatedProgress(newValue: Double): TaskInfo
   }
 
-  case class AsyncTask[T](id: String, task: Task[T], description: String, cancellable: Boolean, progress: Double) extends TaskInfo
+  case class CancelableMonixTask(cancelable: Option[Cancelable], description: String, id: TaskId, progress: Double = 0) extends TaskInfo {
+    override def isCancellable: Boolean = cancelable.nonEmpty
 
-
-  private val extractArchiveTaskId  = "Extract pool archive"
-  private val validatePoolTaskId  = "Validate pool"
-  private val deleteTmpDirTaskId  = "Delete temporaray directory"
-
+    override def withUpdatedProgress(newValue: Double): CancelableMonixTask = copy(progress = newValue)
+  }
 }
-
-
-
-
-
-
-
-
-
-

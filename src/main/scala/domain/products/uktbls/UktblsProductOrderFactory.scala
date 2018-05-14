@@ -1,6 +1,6 @@
 package domain.products.uktbls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class UktblsProductOrderFactory extends ProductOrderFactoryAI[UktblsBet, UktblsParticipationPools, UktblsGamingProductOrder]{

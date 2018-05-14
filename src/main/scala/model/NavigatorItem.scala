@@ -2,6 +2,7 @@ package model
 
 import java.nio.file.Path
 
+import domain.OrderId
 import domain.PoolValidator.CheckResult
 import domain.products.GamingProduct._
 import model.ApplicationModel.{PoolSource, ValidationState}
@@ -12,7 +13,7 @@ import model.OrderDirNavigatorItem.ProductInfos
   */
 trait NavigatorItem {
 
-  def path: Path
+  def relativePath: Path
 
   def displayName: String
 
@@ -28,15 +29,14 @@ trait NavigatorItem {
 }
 
 
-/** @param path The directory where the `poolSource` is physically located (e.g. where a `PoolSourceArchive`
-  *             has been extracted to)
-  * */
-case class ArchiveNavigatorItem(path: Path,
-                                poolSource: PoolSource,
-                                displayName: String,
-                                isValid: Option[Boolean],
-                                validationState: ValidationState.Value,
-                                validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty) extends NavigatorItem {
+case class ArchiveNavigatorItem(
+  relativePath: Path,
+  displayName: String,
+  poolSource: PoolSource,
+  isValid: Option[Boolean],
+  validationState: ValidationState.Value,
+  validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty) extends NavigatorItem {
+  
   override def withValidationResults(validationResults: IndexedSeq[CheckResult]): ArchiveNavigatorItem = {
     this.copy(validationResults = validationResults)
   }
@@ -46,13 +46,18 @@ case class ArchiveNavigatorItem(path: Path,
     validationResults = IndexedSeq.empty)
 }
 
-case class OrderDirNavigatorItem(path: Path,
-                                 displayName: String,
-                                 retailerOrderReference: String,
-                                 validationState: ValidationState.Value,
-                                 hasInvalidOrderDocs: Boolean,
-                                 validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty,
-                                 productInfos: ProductInfos) extends NavigatorItem {
+case class OrderDirNavigatorItem(
+  relativePath: Path,
+  retailerOrderReference: String,
+  validationState: ValidationState.Value,
+  hasInvalidOrderDocs: Boolean,
+  validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty,
+  productInfos: Option[ProductInfos]) extends NavigatorItem {
+
+  override def displayName: String = orderId
+  
+  def orderId: OrderId = relativePath.getFileName.toString
+  
   override def withValidationResults(validationResults: IndexedSeq[CheckResult]): OrderDirNavigatorItem = {
     this.copy(validationResults = validationResults)
   }
@@ -75,10 +80,9 @@ object OrderDirNavigatorItem {
 }
 
 
+case class OrderDocNavigatorItem(relativePath: Path, validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty) extends NavigatorItem {
 
-case class OrderDocNavigatorItem(path: Path,
-                                 displayName: String,
-                                 validationResults: IndexedSeq[CheckResult] = IndexedSeq.empty) extends NavigatorItem {
+  override def displayName: String = relativePath.getFileName.toString
 
   override def withValidationResults(validationResults: IndexedSeq[CheckResult]): OrderDocNavigatorItem = {
     this.copy(validationResults = validationResults)
@@ -92,8 +96,8 @@ case class OrderDocNavigatorItem(path: Path,
 
 /**
   * Options used to filter the content of the `NavigatorView`.
-  * */
+  **/
 case class NavigatorFilterOptions(showValidOrders: Boolean,
-                                  showInvalidOrders: Boolean,
-                                  showUnvalidatedOrders: Boolean,
-                                  textFilter: Option[String])
+  showInvalidOrders: Boolean,
+  showUnvalidatedOrders: Boolean,
+  textFilter: Option[String])

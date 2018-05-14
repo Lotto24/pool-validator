@@ -1,6 +1,6 @@
 package domain.products.irls.p2
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import domain.products.irls.IrlsBet
 import play.api.libs.json.JsObject
 

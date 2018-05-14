@@ -1,6 +1,6 @@
 package domain.products.irishraffle
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class IrishRaffleProductOrderFactory extends ProductOrderFactoryAI[IrishRaffleBet, IrishRaffleParticipationPools, IrishRaffleGamingProductOrder]{

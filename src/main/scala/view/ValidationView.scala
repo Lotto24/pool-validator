@@ -7,7 +7,8 @@ import javafx.scene.layout.{HBox, Priority, VBox}
 
 import controller.ApplicationController
 import domain.PoolResource
-import domain.PoolValidator.{CheckFailure, CheckOk, OrderCheck, PoolCheck}
+import domain.PoolValidator.{CheckFailure, CheckOk}
+import domain.{OrderCheck, PoolSealCheck}
 import model.ApplicationModel._
 import model._
 import org.slf4j.LoggerFactory
@@ -31,7 +32,7 @@ class ValidationView extends VBox with UIUpdateHandler {
     val progressBar = new ProgressBar()
     val btnCancel = new Button("Cancel")
 
-    private var currentTaskId = Option.empty[String]
+    private var currentTaskId = Option.empty[TaskId]
 
     locally {
       getStyleClass.addAll("progress-bar-group")
@@ -55,8 +56,8 @@ class ValidationView extends VBox with UIUpdateHandler {
       val progress = taskInfo.map(_.progress)
       lblPercent.text = progress.map(x => s"${(x * 100).toInt.toString}%").getOrElse("")
       progressBar.progress = progress.getOrElse(0)
-      btnCancel.setVisible(taskInfo.map(_.cancellable).getOrElse(false))
-      btnCancel.setManaged(taskInfo.map(_.cancellable).getOrElse(false))
+      btnCancel.setVisible(taskInfo.map(_.isCancellable).getOrElse(false))
+      btnCancel.setManaged(taskInfo.map(_.isCancellable).getOrElse(false))
       currentTaskId = taskInfo.map(_.id)
     }
   }
@@ -104,7 +105,7 @@ class ValidationView extends VBox with UIUpdateHandler {
 
   def updateBackgroundTaskInfo(taskInfo: Option[TaskInfo]): Unit = updateUI {
     if(lastTaskInfo.map(_.id) != taskInfo.map(_.id)){
-      progressBarGroup.setLabelText(taskInfo.map(_.id).getOrElse(""))
+      progressBarGroup.setLabelText(taskInfo.map(_.description).getOrElse(""))
     }
     progressBarGroup.updateProgressBar(taskInfo)
     progressBarGroup.setManaged(taskInfo.isDefined)
@@ -250,7 +251,7 @@ class ValidationStateListCell extends ListCell[ValidationViewItem] {
 
       val (isOrderCheckItem, isPoolCheckItem) =  item.result.check match {
         case c : OrderCheck => (true, false)
-        case c : PoolCheck => (false, true)
+        case c : PoolSealCheck => (false, true)
         case _ => (false, false)
       }
       JfxUtils.setCssClass(this, "order", isOrderCheckItem)

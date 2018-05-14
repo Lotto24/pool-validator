@@ -12,6 +12,9 @@
 
   <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
     <file>${PATH}/application.log</file>
+    <encoder>
+      <pattern>${PATTERN_DEFAULT}</pattern>
+    </encoder>
     <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
       <fileNamePattern>${PATH}/application.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
     </rollingPolicy>

@@ -1,6 +1,6 @@
 package domain.products.mmls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class MmlsProductOrderFactory extends ProductOrderFactoryAI[MmlsBet, MmlsParticipationPools, MmlsGamingProductOrder]{

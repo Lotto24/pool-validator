@@ -180,12 +180,16 @@ class ApplicationModel(archiveReader : ArchiveReader,
     _showUIDebugControlsProp.setValue(settings.showUIDebugControls)
   }
 
-  def loadPoolDirectory(directory: File): Future[Unit] = loadPoolSource(PoolSourceDirectory(directory.toPath))
+  def loadPoolDirectory(directory: File): Future[Unit] = loadPoolSource(
+    PoolSourceDirectory(directory.toPath), validatePoolAfterLoading = _settings.validatePoolOnLoading 
+  )
 
   /**
     * Loads an archiveFile. Info: the loading is performed asynchronously.
     **/
-  def loadPoolArchive(archiveFile: File): Future[Unit] = loadPoolSource(PoolSourceArchive(archiveFile.toPath))
+  def loadPoolArchive(archiveFile: File): Future[Unit] = loadPoolSource(
+    PoolSourceArchive(archiveFile.toPath), validatePoolAfterLoading = _settings.validatePoolOnLoading
+  )
 
   def unload(): Future[Unit] = {
     logger.info(s"unload()..appState: ${appStateProp.getValue}, ${poolSourceProp.getValue}")
@@ -202,7 +206,9 @@ class ApplicationModel(archiveReader : ArchiveReader,
     errorEventHandler.publishEvent(errors)
   }
 
-  private[model] def loadPoolSource(poolSource: PoolSource): Future[Unit] = {
+  /** @param validatePoolAfterLoading when this parameter is `true`, the participation pool archive is validated 
+    * immediately after loading (convenience option).*/
+  private[model] def loadPoolSource(poolSource: PoolSource, validatePoolAfterLoading: Boolean): Future[Unit] = {
     logger.info(s"loadPoolSource($poolSource)")
     val retValPromise = Promise[Unit]()
 
@@ -213,6 +219,12 @@ class ApplicationModel(archiveReader : ArchiveReader,
         loadPoolSourceImpl(poolSource).onComplete { result =>
           logger.info(s"loadPoolFuture.onComplete: $result => retValPromise.success()")
           retValPromise.success()
+          if(validatePoolAfterLoading) {
+            logger.info(s"loadPoolFuture.onComplete --> start validating..")
+            runLater {
+              validateParticipationPool()
+            }
+          }
         }
       }
     }
@@ -239,7 +251,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
         _archiveDirProp.set(Option(dirSrc.path.toFile))
         new TaskImpl[IndexedSeq[TreeItemExt[NavigatorItem]]](info="generateNavItems", new CancellableSupplierAI[IndexedSeq[TreeItemExt[NavigatorItem]]] {
           override def supply(): IndexedSeq[TreeItemExt[NavigatorItem]] = {
-            generateNavigatorItems(dirSrc.path.toFile)
+            generateNavigatorItems(dirSrc.path)
           }
         })
 
@@ -275,7 +287,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
           }
           file match {
             case Success(f) =>
-              generateNavigatorItems(f)
+              generateNavigatorItems(f.toPath)
             case Failure(t) =>
               throw new Exception("extractAsync failed: " + t.getMessage, t)
           }
@@ -340,10 +352,10 @@ class ApplicationModel(archiveReader : ArchiveReader,
     retValPromise.future
   }
 
-  private def generateNavigatorItems(poolArchiveDir: File): IndexedSeq[TreeItemExt[NavigatorItem]] = {
+  private def generateNavigatorItems(poolArchivePath: Path): IndexedSeq[TreeItemExt[NavigatorItem]] = {
     logger.info(s"generateNavigatorItems()")
 
-    resourceProvider.getPoolMetadata(poolDirPath = poolArchiveDir.toPath) match {
+    resourceProvider.getPoolMetadata(poolDirPath = poolArchivePath) match {
       case Success(metaInfo) =>
         val drawInfo = DrawDateInfos(archiveDrawDate = metaInfo.drawDate, customDrawDate = None)
         runLater {
@@ -355,7 +367,7 @@ class ApplicationModel(archiveReader : ArchiveReader,
         }
     }
 
-    val orderDirsTry = resourceProvider.getOrderDirPaths(poolArchiveDir.toPath)
+    val orderDirsTry = resourceProvider.getOrderDirPaths(poolArchivePath)
     _totalOrdersCount = orderDirsTry.toOption.map(_.size).getOrElse(0)
 
     orderDirsTry.map{ orderDirs =>

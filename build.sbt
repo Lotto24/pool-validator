@@ -25,6 +25,7 @@ lazy val commonDependencies = Seq(
   "org.bouncycastle" % "bcpkix-jdk15on" % versions("bouncycastle"),
   "org.bouncycastle" % "bcprov-jdk15on" % versions("bouncycastle"),
   "com.typesafe.play" % "play-json_2.11" % "2.4.6",
+  "com.beachape" %% "enumeratum" % "1.5.12",
   // test dependencies follow
   "org.scalatest" %% "scalatest" % "2.2.4" % "test",
   "junit" % "junit" % "4.10" % "test"

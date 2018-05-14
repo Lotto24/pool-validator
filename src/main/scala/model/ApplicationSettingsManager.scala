@@ -144,18 +144,24 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   private val propKeyPrefix_publicKey = "publicKeys"
   private val propKeyPrefix_certificate = "certificates"
   private val propKeyPrefix_timstamperCertificate = "timestamper-certificates"
+  
+  private val propKey_validatePoolOnLoading = "validatePoolOnLoading"
+  private val propKey_archiveExtractionTarget = "archiveExtractionTarget"
+  
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   override def loadSettingsImpl(configSource: URI): LoadResult = {
     try {
       val config: PropertiesConfiguration = new PropertiesConfiguration(configSource.toURL)
+      val validateOnLoading= config.getBoolean(propKey_validatePoolOnLoading, false)
       val showDebugControls= config.getBoolean("ui.showDebugControls", false)
-      val archiveExtractionTarget = getFileFromCfg(config, "archiveExtractionTarget")
+      val archiveExtractionTarget = getFileFromCfg(config, propKey_archiveExtractionTarget)
       val credentialsSpecs = loadCredentialsSpecs(config)
 
       Loaded(ApplicationSettings(
         credentialsSpecs,
         archiveExtractionTarget = archiveExtractionTarget,
+        validatePoolOnLoading = validateOnLoading,
         showUIDebugControls = showDebugControls))
     } catch {
       case e: Exception => LoadFailed(Seq(ErrorMsg(e.getMessage, exception = Some(e))))
@@ -335,8 +341,9 @@ class ApplicationSettingsManagerPropertyImpl extends ApplicationSettingsManagerA
   override def saveSettings(settings: ApplicationSettings, target: URI): Try[Boolean] = {
     Try {
       val config: PropertiesConfiguration = new PropertiesConfiguration(target.toURL)
-      config.setProperty("archiveExtractionTarget",
+      config.setProperty(propKey_archiveExtractionTarget,
         settings.archiveExtractionTarget.value.map(_.toString).getOrElse(""))
+      config.setProperty(propKey_validatePoolOnLoading, settings.validatePoolOnLoading)      
       saveCredentialsSpecs(config, settings.credentialsSpecs)
       logger.info(s"saveSettings()..location:${target.toURL}")
       config.save(target.toURL)

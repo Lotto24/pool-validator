@@ -9,6 +9,20 @@
     "creation-date": "2017-02-05T13:22:47.123Z"
   },
   "gaming-product-orders": {
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/c4ls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "cash-ball": 1
+      }, {
+        "numbers": [2, 3, 4, 5, 6],
+        "cash-ball": 2
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-10",
+        "draw-count": 1,
+        "draw-days": ["THURSDAY"]
+      }
+    },
     "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ejs": {
       "variant": "variant_1",
       "bets": [{
@@ -151,6 +165,33 @@
         "draw-days": ["WEDNESDAY"]
       }
     },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/keno": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "stake": 1
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-08",
+        "draw-count": 1
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/mmls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "mega-ball": 1
+      }, {
+        "numbers": [6, 7, 8, 9, 10],
+        "mega-ball": 2
+      }, {
+        "numbers": [11, 12, 13, 14, 15],
+        "mega-ball": 3
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-08",
+        "draw-count": 1,
+        "draw-days": ["TUESDAY"]
+      }
+    },
     "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/ukls": {
       "variant": "variant_1",
       "bets": [{
@@ -173,6 +214,20 @@
       }],
       "participation-pools": {
         "first-date": "2017-02-08",
+        "draw-count": 1,
+        "draw-days": ["WEDNESDAY"]
+      }
+    },
+    "http://zoe.mylotto24.co.uk/gaming-products/mylotto24/uspbls": {
+      "bets": [{
+        "numbers": [1, 2, 3, 4, 5],
+        "power-ball": 1
+      }, {
+        "numbers": [6, 7, 8, 9, 10],
+        "power-ball": 2
+      }],
+      "participation-pools": {
+        "first-date": "2018-05-09",
         "draw-count": 1,
         "draw-days": ["WEDNESDAY"]
       }

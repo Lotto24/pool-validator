@@ -2,27 +2,24 @@ package view
 
 import java.io.File
 import java.util.Comparator
+
 import javafx.collections.FXCollections
 import javafx.collections.transformation.SortedList
 import javafx.scene.control._
 import javafx.scene.layout._
 import javafx.stage.FileChooser.ExtensionFilter
 import javafx.util.Callback
-
-import util.Utils
-import Utils.UIValue
 import model.ApplicationSettings
 import model.ApplicationSettings._
 import org.slf4j.LoggerFactory
+import scalafx.Includes._
 import util.Utils
+import util.Utils.{UIValue, stringToOption}
 import view.CssClass.Color
 import view.JfxImplicits._
 import view.PublicKeyEditor.PublicKeyListItem
 import view.impl.StructureElements.{SectionSeparator, VSpacer}
 import view.impl.{ChooseViaDialog, ValidationErrorHint}
-import Utils.stringToOption
-
-import scalafx.Includes._
 
 
 /**
@@ -37,6 +34,8 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
   private val tefArchiveExtractionDir = new TextField()
   private val validationHint_tefArchiveExtractionDir = new ValidationErrorHint
 
+  private val cbStartValidationAfterLoading = new CheckBox()
+  
   private val btnChooseFile_caCert = new Button("File")
   private val btnChooseFile_archiveExtractionDir = new Button("File")
 
@@ -93,6 +92,11 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
       rowInd += 1
 
       gridGlobal.add(validationHint_tefArchiveExtractionDir, 1, rowInd)
+
+      rowInd += 1
+
+      gridGlobal.add(new Label("Start validation after loading:"), 0, rowInd)
+      gridGlobal.add(cbStartValidationAfterLoading, 1, rowInd)
     }
 
     // populate gridCerts
@@ -175,6 +179,8 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
     tefArchiveExtractionDir.setText(settings.archiveExtractionTarget.value.map(_.toString).orNull)
     validationHint_tefArchiveExtractionDir.setError(settings.archiveExtractionTarget.error.map(_.message))
 
+    cbStartValidationAfterLoading.setSelected(settings.validatePoolOnLoading)
+    
     tefCaCertFile.setText(settings.credentialsSpecs.certConfigItems.headOption.flatMap(_.file.value.map(_.toString)).getOrElse(""))
     validationHint_caCertFile.setError(settings.credentialsSpecs.certConfigItems.headOption.flatMap(_.file.error.map(_.message)))
 
@@ -227,6 +233,10 @@ class SettingsDialogView(private var initialSettings: ApplicationSettings) exten
 
     tefArchiveExtractionDir.onAction = handle {
       onArchiveExtractionDirChanged(Utils.stringToOption(tefArchiveExtractionDir.getText).map(new File(_)))
+    }
+
+    cbStartValidationAfterLoading.onAction = handle {
+      initialSettings = initialSettings.copy(validatePoolOnLoading = cbStartValidationAfterLoading.isSelected)
     }
   }
 

@@ -1,46 +1,24 @@
 package domain.products
 
+
 import java.util.Locale
+
+import enumeratum.{Enum, EnumEntry}
+
+import scala.collection.immutable
 
 /**
   * http://www.lotteries.io/concepts/draw-series
   */
-sealed trait PrimaryLottery extends Serializable {
+sealed trait PrimaryLottery extends Serializable with EnumEntry {
   def id: String
 }
 
-object PrimaryLottery {
+object PrimaryLottery extends Enum[PrimaryLottery] {
 
-  val allLotteries: Vector[PrimaryLottery] = {
-    Vector(
-      `6aus49`,
-      Spiel77,
-      Super6,
-      Glücksspirale,
-      Eurojackpot,
-      Euromillions,
-      EuromillionsPlus,
-      IrishLotto,
-      IrishLottoPlus1,
-      IrishLottoPlus2,
-      IrishRaffle,
-      UkLotto,
-      AUSOzLotto,
-      AUSPowerball,
-      AUSSaturdayLotto,
-      AUSMondayLotto,
-      AUSWednesdayLotto,
-      SwedishLotto,
-      FrenchLotto,
-      PolishLotto,
-      Keno,
-      Plus5,
-      Xmasl,
-      UkThunderball
-    )
-  }
+  override lazy val values: immutable.IndexedSeq[PrimaryLottery] = findValues
 
-  val allLotteriesById: Map[String, PrimaryLottery] = allLotteries.map(l => l.id -> l).toMap
+  val allLotteriesById: Map[String, PrimaryLottery] = values.map(l => l.id -> l).toMap
 
   def getLottery(id: String): Option[PrimaryLottery] = allLotteriesById.get(id)
 
@@ -162,6 +140,21 @@ object PrimaryLottery {
 
   case object IrishRaffle extends PrimaryLottery {
     val Name = "irishraffle"
+    override def id: String = Name
+  }
+  
+  case object Cash4Life extends PrimaryLottery {
+    val Name = "cash4life"
+    override def id: String = Name
+  }
+  
+  case object UsPowerball extends PrimaryLottery {
+    val Name = "uspowerball"
+    override def id: String = Name
+  }
+  
+  case object MegaMillions extends PrimaryLottery {
+    val Name = "megamillions"
     override def id: String = Name
   }
 

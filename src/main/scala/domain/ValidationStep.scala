@@ -5,9 +5,9 @@ import enumeratum.{Enum, EnumEntry}
 
 import scala.collection.immutable
 
-/** Base trait for describing check that can be executed to validate a participation pool archive.
+/** Base trait for descriptions of checks that can be executed to validate a participation pool archive.
   * There are sub-traits `OrderCheck` and `PoolSealCheck`. */
-trait PoolArchiveCheck {
+sealed trait PoolArchiveCheck {
 
   def description: String
 

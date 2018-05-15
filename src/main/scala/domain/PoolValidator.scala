@@ -1,22 +1,23 @@
 package domain
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.security.cert.X509Certificate
 import java.security.{MessageDigest, PublicKey, Signature}
 import java.time._
 import java.util
 import java.util.Base64
-import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicInteger
 
-import _root_.util.Task.CancellableSupplierAI
-import _root_.util.{Task, TaskImpl}
+import domain.OrderCheck._
 import domain.PoolMetadata.PoolDigest
 import domain.PoolResource.{Filenames, PRType}
+import domain.PoolSealCheck._
 import domain.PoolValidator._
 import domain.products.GamingProduct._
 import domain.products.ParticipationPools.parseParticipationPoolId
+import monix.eval.Task
+import monix.execution.Scheduler
 import org.bouncycastle.asn1.DEROctetString
 import org.bouncycastle.asn1.x509.{ExtendedKeyUsage, Extension, KeyPurposeId}
 import org.bouncycastle.cert.X509CertificateHolder
@@ -28,33 +29,34 @@ import org.bouncycastle.util.Selector
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
-import scala.collection.parallel.ParSeq
-import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success, Try}
 
 
 trait PoolValidator {
 
   /**
-    * Setter for a `CredentialsManager` which is used to obtain PublicKeys and Certificates during the validation.
-    **/
-  def setCredentialsProvider(credentialsProvider: CredentialsProvider): this.type
-
-  /**
     * Validates a single order. The according order-documents are expected to be within the given `orderDirPath`.
     **/
-  def validateOrder(orderDirPath: Path, drawTime: Try[Instant]): OrderValidationResult
+  def validateOrder(orderId: OrderId, drawTime: Try[Instant]): Task[OrderValidationResult]
 
+  def validateOrderDocs(orderDocs: OrderDocs, drawtime: Try[Instant], poolMetadata: Try[PoolMetadata]): OrderValidationResult
+
+  def validatePoolSeal(
+    orderIds: IndexedSeq[String], poolMetadata: Try[PoolMetadata], drawTime: Try[Instant], cbProgress: Option[ProgressIndicator] = None
+  ): IndexedSeq[CheckResult]
+  
   /**
     * Validates a participation pool at the given poolLocation.
     **/
-  def validatePool(poolLocation: Path, drawTime: Try[Instant],
-                   intermediateResultCallback: IntermediateResultCallback): Task[ArchiveValidationResult]
+  def validatePool(drawTime: Try[Instant],
+    intermediateResultCallback: IntermediateResultCallback): Task[ArchiveValidationResult]
 }
 
 
 object PoolValidator {
 
+  type ProgressIndicator = Double => Unit
+  
   trait IntermediateResultCallback {
 
     def onOrderValidated(result: OrderValidationResult, countValidatedOrders: Int)
@@ -73,14 +75,14 @@ object PoolValidator {
 
     override def isValid: Boolean = checkResults.forall(_.isOk)
 
-    def orderId: String = orderLocation.getFileName.toString
+    def orderId: OrderId = orderLocation.getFileName.toString
 
   }
 
 
   case class ArchiveValidationResult(poolLocation: Path,
-                                     poolValidationResults: IndexedSeq[CheckResult],
-                                     orderValidationResults: IndexedSeq[OrderValidationResult]) extends ValidationResult {
+    poolValidationResults: IndexedSeq[CheckResult],
+    orderValidationResults: IndexedSeq[OrderValidationResult]) extends ValidationResult {
 
     override def isValid: Boolean = poolValidationResults.forall(_.isOk) && orderValidationResults.forall(_.isValid)
 
@@ -88,120 +90,35 @@ object PoolValidator {
 
   class UnexpectedValueException[T](msg: String, expected: Option[T], actual: Option[T]) extends Exception(msg)
 
-
-  trait Check {
-
-    def description: String
-
-    def affectedResources: Set[PRType.Value]
-
-  }
-
-  /**
-    * Description class for checks concerned to a single order.
-    **/
-  case class OrderCheck(description: String, affectedResources: Set[PRType.Value]) extends Check
-
-  /**
-    * Description class for checks concerned to the participation pool.
-    **/
-  case class PoolCheck(description: String, affectedResources: Set[PRType.Value]) extends Check
-
-
-  // pool validation checks
-  val PoolDigestCheck = PoolCheck(description = "The participation pool digest must match the included orders",
-    affectedResources = Set(PRType.MetaData, PRType.PoolDirectory))
-  val PoolDigestTimestampExistsCheck = PoolCheck(description = s"Document ${Filenames.PoolDigestTimestamp} must exist",
-    affectedResources = Set(PRType.PoolDigestTimestamp))
-  val PoolDigestTimestampAuthCheck = PoolCheck(description = "The participation pool digest's timestamp must be authentic",
-    affectedResources = Set(PRType.PoolDigestTimestamp))
-  val PoolDigestTimestampResultSignatureCheck = PoolCheck(description = "The participation pool digest's timestamp must match the pool digest",
-    affectedResources = Set(PRType.PoolDigestTimestamp)
-  )
-  val PoolDigestTimestampBeforeDrawTimeCheck = PoolCheck(description = "The participation pool digest's timestamp must be created before draw time",
-    affectedResources = Set(PRType.PoolDigestTimestamp)
-  )
-
-
-  // order validation checks
-  val AllOrderDocumentsMustExistCheck = OrderCheck(description = "All order documents must exist",
-    affectedResources = Set(PRType.OrderDirectory, PRType.Order, PRType.OrderSignature,
-      PRType.OrderResult, PRType.OrderResultSignature, PRType.OrderResultSignatureTimestamp)
-  )
-  val RetailerOrderSignatureCheck = OrderCheck(description = "Retailer order signature must be valid",
-    affectedResources = Set(PRType.Order, PRType.OrderSignature))
-  val PoolParticipationCheck = OrderCheck(description = "Order must participate in pool",
-    affectedResources = Set(PRType.Order, PRType.MetaData))
-  val CheckOrderResultOperatorSignature = OrderCheck(description = "Order document must match retailer order",
-    affectedResources = Set(PRType.Order, PRType.OrderResult))
-  val OrderAcceptedCheck = OrderCheck(description = "Order must be accepted",
-    affectedResources = Set(PRType.OrderResult))
-  val OrderResultSignatureValidCheck = OrderCheck(description = "Order document signature must be valid",
-    affectedResources = Set(PRType.OrderResult, PRType.OrderResultSignature))
-
-  val OrderResultSignatureTimestampAuthCheck = OrderCheck(description = "Order document signature timestamp must be authentic",
-    affectedResources = Set(PRType.OrderResultSignatureTimestamp))
-  val OrderResultSignatureTimestampResultSignatureCheck = OrderCheck(description = "Order document signature timestamp must match order document signature",
-    affectedResources = Set(PRType.OrderResultSignature, PRType.OrderResultSignatureTimestamp))
-  val OrderResultSignatureTimestampBeforeDrawTimeCheck = OrderCheck(description = "Order document signature timestamp must be created before draw time",
-    affectedResources = Set(PRType.OrderResultSignatureTimestamp))
-
-  val allOrderRelatedChecks: Seq[OrderCheck] = Vector(
-    AllOrderDocumentsMustExistCheck,
-    RetailerOrderSignatureCheck,
-    PoolParticipationCheck,
-    CheckOrderResultOperatorSignature,
-    OrderAcceptedCheck,
-    OrderResultSignatureValidCheck,
-    OrderResultSignatureTimestampAuthCheck,
-    OrderResultSignatureTimestampResultSignatureCheck,
-    OrderResultSignatureTimestampBeforeDrawTimeCheck
-  )
-
-  val allPoolRelatedChecks: Seq[PoolCheck] = Vector(
-    PoolDigestCheck,
-    PoolDigestTimestampExistsCheck,
-    PoolDigestTimestampAuthCheck,
-    PoolDigestTimestampResultSignatureCheck,
-    PoolDigestTimestampBeforeDrawTimeCheck
-  )
-
-  val allChecks: IndexedSeq[Check] = (allPoolRelatedChecks ++ allOrderRelatedChecks).toVector
-
-
   sealed trait CheckResult {
-    def check: Check
+    def check: PoolArchiveCheck
 
     def isOk: Boolean
   }
 
 
-  case class CheckOk(check: Check) extends CheckResult {
+  case class CheckOk(check: PoolArchiveCheck) extends CheckResult {
     override def isOk: Boolean = true
   }
 
 
-  case class CheckFailure(check: Check,
-                          message: String,
-                          exception: Option[Throwable] = None) extends CheckResult {
+  case class CheckFailure(check: PoolArchiveCheck,
+    message: String,
+    exception: Option[Throwable] = None) extends CheckResult {
     override val isOk: Boolean = false
   }
 
 }
 
 
-class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
-                        implicit val ec: ExecutionContext,
-                        private var credentialsProvider: CredentialsProvider,
-                        algorithmMapper : SignatureAlgorithmMapper) extends PoolValidator {
-
+class PoolValidatorImpl(
+  resourceProvider: PoolResourceProvider,
+  private val credentialsProvider: CredentialsProvider,
+  algorithmMapper: SignatureAlgorithmMapper)(
+  implicit monixScheduler: Scheduler
+) extends PoolValidator {
 
   private val logger = LoggerFactory.getLogger(getClass)
-
-  override def setCredentialsProvider(provider: CredentialsProvider): this.type = {
-    this.credentialsProvider = provider
-    this
-  }
 
   private[domain] def sha256UrlSafe(data: String): String = {
     val md = MessageDigest.getInstance("SHA-256")
@@ -211,7 +128,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
 
   /**
     * @param data non-urlsafe encoded base64 data
-    * */
+    **/
   private[domain] def sha256AsBase64(data: IndexedSeq[Byte]): String = {
     val urlSafe = false
     val md = MessageDigest.getInstance("SHA-256")
@@ -249,8 +166,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     * @param orderSignature order signature (BASE64-encoded)
     **/
   private[domain] def checkRetailerSignature(orderSignature: Try[OrderSignature], order: Try[Order],
-                                             retailerPublicKey: Try[PublicKey]): CheckResult = {
-
+    retailerPublicKey: Try[PublicKey]): CheckResult = {
     if (orderSignature.isFailure || order.isFailure || retailerPublicKey.isFailure) {
       val errors = Seq(
         orderSignature.failed.toOption.map(_ => s"Missing resource: ${Filenames.OrderSignature}"),
@@ -319,13 +235,13 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
 
   /**
     *
-    * */
-  private[domain] def checkOperatorSignature(orderResultSignature : Try[OrderResultSignature],
-                                             operatorPubKey: Try[PublicKey],
-                                             orderResult : Try[OrderResult]): CheckResult = {
+    **/
+  private[domain] def checkOperatorSignature(orderResultSignature: Try[OrderResultSignature],
+    operatorPubKey: Try[PublicKey],
+    orderResult: Try[OrderResult]): CheckResult = {
     val errors = orderResultSignature.failed.toOption.map(t => s"Missing operator signature: ${t.getMessage}") ++
       operatorPubKey.failed.toOption.map(t => s"Missing operator public key: ${t.getMessage}") ++
-       orderResult.failed.toOption.map(t => s"Missing order result data: ${t.getMessage}")
+      orderResult.failed.toOption.map(t => s"Missing order result data: ${t.getMessage}")
     if (errors.nonEmpty) {
       CheckFailure(OrderResultSignatureValidCheck, message = errors.mkString("\n"))
     } else {
@@ -357,9 +273,9 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     * Checks the validity of the timestamp of a single order.
     **/
   private[domain] def checkOrderTimestamp(timestampBase64: Try[IndexedSeq[Byte]],
-                                          drawTime: Try[Instant],
-                                          orderResultSignature: Try[OrderResultSignature],
-                                          caCertificates: Seq[X509Certificate]): Seq[CheckResult] = {
+    drawTime: Try[Instant],
+    orderResultSignature: Try[OrderResultSignature],
+    caCertificates: Seq[X509Certificate]): IndexedSeq[CheckResult] = {
     val signature = orderResultSignature.map(_.signature)
     checkTimestampImpl(timestampBase64 = timestampBase64, drawTime = drawTime, signature = signature, caCertificates = caCertificates,
       timestampAuthCheck = OrderResultSignatureTimestampAuthCheck,
@@ -372,9 +288,9 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     * Checks the validity of the timestamp for a participation pool seal.
     **/
   private[domain] def checkPoolDigestTimestamp(timestampBase64: Try[IndexedSeq[Byte]],
-                                               drawtime: Try[Instant],
-                                               signature: Try[IndexedSeq[Byte]],
-                                               caCertificates: Seq[X509Certificate]): Seq[CheckResult] = {
+    drawtime: Try[Instant],
+    signature: Try[IndexedSeq[Byte]],
+    caCertificates: Seq[X509Certificate]): Seq[CheckResult] = {
     checkTimestampImpl(timestampBase64 = timestampBase64, drawTime = drawtime, signature = signature, caCertificates = caCertificates,
       timestampAuthCheck = PoolDigestTimestampAuthCheck,
       timestampResultSignatureCheck = PoolDigestTimestampResultSignatureCheck,
@@ -394,13 +310,13 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     *                        should be signed by at least one of them in order be be valid.
     **/
   private[domain] def checkTimestampImpl(timestampBase64: Try[IndexedSeq[Byte]],
-                                         drawTime: Try[Instant],
-                                         signature: Try[IndexedSeq[Byte]],
-                                         caCertificates: Seq[X509Certificate],
-                                         timestampAuthCheck: Check,
-                                         timestampResultSignatureCheck: Check,
-                                         timestampBeforeDrawtimeCheck: Check
-                                        ): Seq[CheckResult] = {
+    drawTime: Try[Instant],
+    signature: Try[IndexedSeq[Byte]],
+    caCertificates: Seq[X509Certificate],
+    timestampAuthCheck: PoolArchiveCheck,
+    timestampResultSignatureCheck: PoolArchiveCheck,
+    timestampBeforeDrawtimeCheck: PoolArchiveCheck
+  ): IndexedSeq[CheckResult] = {
     if (timestampBase64.isFailure) {
       val errors = {
         timestampBase64.failed.toOption.map(t => s"Missing TimestampResponse data: ${t.getMessage}") ++
@@ -408,7 +324,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
           signature.failed.toOption.map(t => s"Missing signature: ${t.getMessage}")
       } ++ (if (caCertificates.isEmpty) Some("No certificates provided") else None).toList
       val msg = errors.mkString(", ")
-      Seq(
+      IndexedSeq(
         CheckFailure(timestampResultSignatureCheck, message = msg),
         CheckFailure(timestampAuthCheck, message = msg),
         CheckFailure(timestampBeforeDrawtimeCheck, message = msg)
@@ -508,7 +424,7 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
           try {
             logger.debug(
               s"""checkTimestampImpl()..trying ca-caCert. ${index + 1} of ${caCertificates.size}
-                  |caCert.getIssuerDN.getName: ${caCert.getIssuerDN.getName}
+                 |caCert.getIssuerDN.getName: ${caCert.getIssuerDN.getName}
                """.stripMargin)
 
             val contentVerifierProvider = new JcaContentVerifierProviderBuilder().build(caCert)
@@ -572,14 +488,14 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
               message = s"The timestamp authority's certificate is not signed by one ot the trusted CA-certificates.")
         }
 
-        Seq(
+        IndexedSeq(
           timestampResultSignatureCheckResult,
           timestampAuthCheckResult,
           timestampBeforeDrawTimeCheckResult
         )
       } catch {
         case t: Throwable =>
-          Seq(
+          IndexedSeq(
             CheckFailure(timestampAuthCheck, message = t.getMessage, exception = Option(t)),
             CheckFailure(timestampResultSignatureCheck, message = t.getMessage, exception = Some(t)),
             CheckFailure(timestampBeforeDrawtimeCheck, message = t.getMessage, exception = Some(t))
@@ -588,80 +504,38 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     }
   }
 
-  override def validateOrder(orderDirPath: Path, drawtime: Try[Instant]): OrderValidationResult = {
-    val order = resourceProvider.getOrder(orderDirPath)
-    val archiveDir = orderDirPath.getParent
-    val poolMetadata = resourceProvider.getPoolMetadata(poolDirPath = archiveDir)
-    val orderSignature = resourceProvider.getOrderSignature(orderDirPath)
-    val orderResult = resourceProvider.getOrderResult(orderDirPath)
-    val orderResultSignature = resourceProvider.getOrderResultSignature(orderDirPath)
-    val orderResultSignatureTimestamp = resourceProvider.getOrderResultSignatureTimestamp(orderDirPath)
+  override def validateOrder(orderId: OrderId, drawtime: Try[Instant]): Task[OrderValidationResult] = {
+    Task (
+      resourceProvider.getOrderDocs(orderId).map { orderDocs  => 
+        validateOrderDocs(orderDocs, drawtime, resourceProvider.getPoolMetadata())
+      } match { 
+        case Success(result) => result
+        case Failure(t) => throw t
+      }
+    )
+  }
 
-    val validationResults = IndexedSeq.newBuilder[CheckResult]
-    validationResults.sizeHint(PoolValidator.allChecks.size)
-
-    def doCheck(aCheck: => CheckResult): Unit = {
-      validationResults += aCheck
-    }
-
-    def doChecks(aCheck: => Seq[CheckResult]): Unit = {
-      validationResults ++= aCheck
-    }
-
+  override def validateOrderDocs(orderDocs: OrderDocs, drawtime: Try[Instant], poolMetadata: Try[PoolMetadata]): OrderValidationResult = {
     //get the credentials
-    val retailerPublicKey = orderSignature.flatMap(os => credentialsProvider.getPublicKey(os.keyId, os.algorithm))
-    val operatorPublicKey = orderResultSignature.flatMap(ors => credentialsProvider.getPublicKey(ors.keyId, ors.algorithm))
+    val retailerPublicKey = orderDocs.orderSignature.flatMap(os => credentialsProvider.getPublicKey(os.keyId, os.algorithm))
+    val operatorPublicKey = orderDocs.orderResultSignature.flatMap(ors => credentialsProvider.getPublicKey(ors.keyId, ors.algorithm))
     val caCertificate = credentialsProvider.getCertificate(CredentialsProvider.RootCaCertificate)
 
     //execute the checks
-
-    doCheck {
-      checkPoolParticipation(order, poolMetadata)
-    }
-
-    doCheck {
-      checkRetailerSignature(orderSignature, order, retailerPublicKey)
-    }
-
-    doCheck {
-      checkOrderResult(order, orderResult)
-    }
-
-    doCheck {
-      checkOrderIsAccepted(orderResult)
-    }
-
-    doCheck {
-      val errors: Seq[String] = Seq(
-        order.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.Order, t)),
-        orderSignature.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderSignature, t)),
-        orderResult.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResult, t)),
-        orderResultSignature.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResultSignature, t)),
-        orderResultSignatureTimestamp.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResultSignatureTimestamp, t))
-      ).flatten
-
-      errors.isEmpty match {
-        case true => CheckOk(AllOrderDocumentsMustExistCheck)
-        case false => CheckFailure(AllOrderDocumentsMustExistCheck, message = s"${errors.mkString("\n")}")
-      }
-    }
-
-    doCheck {
-      checkOperatorSignature(orderResultSignature, operatorPubKey = operatorPublicKey, orderResult)
-    }
-
-    doChecks {
-      //INFO the draw time is stated in the metadata, but it can be overridden in the UI.
-      //     This override functionality is implemented in the drawtimeProvider.
-      checkOrderTimestamp(
-        orderResultSignatureTimestamp.map(_.rawData),
-        drawtime,
-        orderResultSignature = orderResultSignature,
-        caCertificates = credentialsProvider.getTimestamperCertificates
-      )
-    }
-
-    OrderValidationResult(orderDirPath.toAbsolutePath, validationResults.result())
+    val validationResults = IndexedSeq(
+      checkPoolParticipation(orderDocs.order, poolMetadata),
+      checkRetailerSignature(orderDocs.orderSignature, orderDocs.order, retailerPublicKey),
+      checkOrderResult(orderDocs.order, orderDocs.orderResult),
+      checkOrderIsAccepted(orderDocs.orderResult),
+      checkIfAllOrderDocumentsExist(orderDocs),
+      checkOperatorSignature(orderDocs.orderResultSignature, operatorPubKey = operatorPublicKey, orderDocs.orderResult)
+    ) ++ checkOrderTimestamp(
+      orderDocs.orderResultSignatureTimestamp.map(_.rawData),
+      drawtime,
+      orderResultSignature = orderDocs.orderResultSignature,
+      caCertificates = credentialsProvider.getTimestamperCertificates
+    )
+    OrderValidationResult(Paths.get(orderDocs.orderId), validationResults)
   }
 
   private[domain] def getErrorTxtMissingOrInvalidOrderDoc(resource: PRType.Value, throwable: Throwable): String = {
@@ -669,48 +543,58 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     s"Missing or invalid document ${fileName}: ${throwable.getMessage}"
   }
 
-  override def validatePool(poolLocation: Path, drawTime: Try[Instant],
-                            intermediateResultCallback: IntermediateResultCallback): Task[ArchiveValidationResult] = {
+  private def checkIfAllOrderDocumentsExist(orderDocs: OrderDocs): CheckResult = {
+    val errors: Seq[String] = Seq(
+      orderDocs.order.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.Order, t)),
+      orderDocs.orderSignature.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderSignature, t)),
+      orderDocs.orderResult.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResult, t)),
+      orderDocs.orderResultSignature.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResultSignature, t)),
+      orderDocs.orderResultSignatureTimestamp.failed.toOption.map(t => getErrorTxtMissingOrInvalidOrderDoc(PRType.OrderResultSignatureTimestamp, t))
+    ).flatten
 
-    val task = new TaskImpl[ArchiveValidationResult](info = "validatePool", new CancellableSupplierAI[ArchiveValidationResult] {
-
-      override def supply(): ArchiveValidationResult = {
-        val validatedCount = new AtomicInteger(0) //needed due to parallel execution
-
-        resourceProvider.getOrderDirPaths(poolLocation.toFile.toPath) match {
-          case Success(orderDirPaths) =>
-            val orderValidationResults: ParSeq[OrderValidationResult] = orderDirPaths.par.map { orderDirPath =>
-              if (isCancelled) {
-                logger.info(s"Supplier[ArchiveValidationResult].get() ==> canceled!")
-                throw new CancellationException("validatePool() was cancelled")
-              }
-              val ovResult = validateOrder(orderDirPath, drawTime)
-              intermediateResultCallback.onOrderValidated(ovResult, validatedCount.incrementAndGet())
-              ovResult
-            }
-
-            val poolMetadata = resourceProvider.getPoolMetadata(poolDirPath = poolLocation)
-            val timestampBase64 = resourceProvider.getPoolDigestTimestamp(poolLocation).map(_.rawData)
-            val poolValidationResults: Seq[CheckResult] = validatePoolSeal(orderDirPaths, poolMetadata, timestampBase64, drawTime)
-
-            ArchiveValidationResult(poolLocation = poolLocation,
-              poolValidationResults = poolValidationResults.toVector,
-              orderValidationResults.seq.toIndexedSeq
-            )
-
-          case Failure(t) =>
-            throw new Exception(s"Validation of participation pool not possible: the pool does not contain any orders.", t)
-        }
-      }
-    })
-    task
+    val r: CheckResult = errors.isEmpty match {
+      case true => CheckOk(AllOrderDocumentsMustExistCheck)
+      case false => CheckFailure(AllOrderDocumentsMustExistCheck, message = s"${errors.mkString("\n")}")
+    }
+    r
   }
 
+  override def validatePool(drawTime: Try[Instant], intermediateResultCallback: IntermediateResultCallback): Task[ArchiveValidationResult] = {
+    val validatedCount = new AtomicInteger(0) //needed due to parallel execution
+    val poolMetadata = resourceProvider.getPoolMetadata()
+    val ordersValidationTask = resourceProvider.getOrderDocsObservable()
+      .mapParallelUnordered(parallelism = 8) { orderDocsTry =>
+        Task {
+          orderDocsTry.failed.foreach( t => throw new Exception(s"failed to load OrderDocs:${t.getMessage}", t)) //catched by the stream
+          val orderDocs = orderDocsTry.get
+          val ovResult = validateOrderDocs(orderDocs, drawTime, poolMetadata)
+          intermediateResultCallback.onOrderValidated(ovResult, validatedCount.incrementAndGet())
+          ovResult
+        }
+      }.toListL.map(_.toIndexedSeq)
 
-  private[domain] def validatePoolSeal(orderDirPaths: IndexedSeq[Path],
-                                       poolMetadata: Try[PoolMetadata],
-                                       timestampBase64: Try[IndexedSeq[Byte]],
-                                       drawTime: Try[Instant]): Seq[CheckResult] = {
+    val resultFuture: monix.eval.Task[ArchiveValidationResult] = ordersValidationTask.map { orderValidationResults =>
+      val allOrderIds = orderValidationResults.map(_.orderId)
+      if (allOrderIds.isEmpty) {
+        throw new Exception(s"Validation of participation pool not possible: the pool does not contain any orders.")
+      } else {
+        val poolValidationResults: Seq[CheckResult] = validatePoolSeal(allOrderIds, poolMetadata, drawTime)
+        ArchiveValidationResult(poolLocation = Paths.get(""),
+          poolValidationResults = poolValidationResults.toVector,
+          orderValidationResults.seq.toIndexedSeq
+        )
+      }
+    }
+    resultFuture.onErrorRecoverWith { case t => 
+      Task.raiseError[ArchiveValidationResult](new Exception(s"Validation of participation pool not possible; ${t.getMessage}", t))
+    }
+  }
+
+  override def validatePoolSeal(
+    orderIds: IndexedSeq[String], poolMetadata: Try[PoolMetadata], drawTime: Try[Instant], cbProgress: Option[ProgressIndicator] = None
+  ): IndexedSeq[CheckResult] = {
+
+    val timestampBase64 = resourceProvider.getPoolDigestTimestamp().map(_.rawData)
 
     val poolDigest: Try[PoolDigest] = poolMetadata.flatMap { metaData =>
       metaData.poolDigest match {
@@ -730,9 +614,15 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
     val poolDigestCheckResult: CheckResult = {
       poolDigest match {
         case Success(pooldigest) =>
-          val allOrderIds = orderDirPaths.map(_.getFileName.toString).sorted // => the fileName is also the orderId
-        val messageDigest = MessageDigest.getInstance(pooldigest.algorithm)
-          allOrderIds.foreach { d => messageDigest.update(d.getBytes(StandardCharsets.UTF_8)) }
+          val allOrderIds = orderIds.sorted
+          val messageDigest = MessageDigest.getInstance(pooldigest.algorithm)
+          allOrderIds.zipWithIndex.foreach { case (d, index) => 
+            messageDigest.update(d.getBytes(StandardCharsets.UTF_8))
+            cbProgress.foreach { progressUpdateCb =>
+              val progressPercent: Double = Math.round((index / allOrderIds.size.toDouble) * 100.0) / 100.0
+              progressUpdateCb(progressPercent) 
+            }
+          }
           val computedPoolDigest = messageDigest.digest()
           val metaDataPoolDigest_bytes = Base64.getDecoder.decode(pooldigest.base64.toArray)
           (util.Arrays.equals(metaDataPoolDigest_bytes, computedPoolDigest)) match {
@@ -751,9 +641,6 @@ class PoolValidatorImpl(resourceProvider: PoolResourceProvider,
       caCertificates = credentialsProvider.getTimestamperCertificates
     )
 
-    val poolCheckResults: Seq[CheckResult] = Seq(poolDigestTimestampExistsCheckResult, poolDigestCheckResult) ++ timestampCheckResults
-    poolCheckResults
+    IndexedSeq(poolDigestTimestampExistsCheckResult, poolDigestCheckResult) ++ timestampCheckResults
   }
-
 }
-

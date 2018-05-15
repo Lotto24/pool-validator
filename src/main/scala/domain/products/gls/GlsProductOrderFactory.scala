@@ -1,6 +1,6 @@
 package domain.products.gls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 

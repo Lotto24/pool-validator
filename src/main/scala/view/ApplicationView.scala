@@ -131,7 +131,9 @@ class ApplicationView extends VBox with UIUpdateHandler{
   def showArchiveFileSelector(initialFile: Option[Path]): Unit = {
     ChooseViaDialog.chooseFileViaDialog(this.getScene.getWindow, initialFile = initialFile.map(_.toFile),
       title = "Open Resource File",
-      extensionFilters = Seq(new ExtensionFilter("tgz files", "*.tgz"), new ExtensionFilter("tar.gz files", "*.tar.gz"))
+      extensionFilters = Seq(
+        new ExtensionFilter("tgz files", Seq("*.tgz")) 
+      )
     ).foreach(controller.loadPoolArchive)
   }
 

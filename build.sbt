@@ -22,10 +22,13 @@ lazy val commonDependencies = Seq(
   "org.apache.commons" % "commons-compress" % "1.8",
   "org.scalafx" % "scalafxml-core-sfx8_2.11" % "0.2.2",
   "org.jfxtras" % "jfxtras-controls" % "8.0-r4",
-  "org.bouncycastle" % "bcpkix-jdk15on" % versions("bouncycastle"),
-  "org.bouncycastle" % "bcprov-jdk15on" % versions("bouncycastle"),
+  "org.bouncycastle" % "bcpkix-jdk15on" % versions("bouncycastle") force(),
+  "org.bouncycastle" % "bcprov-jdk15on" % versions("bouncycastle") force(),
   "com.typesafe.play" % "play-json_2.11" % "2.4.6",
   "com.beachape" %% "enumeratum" % "1.5.12",
+  "io.monix" %% "monix" % "3.0.0-RC1",
+  "com.google.guava" % "guava" % "23.0",
+  
   // test dependencies follow
   "org.scalatest" %% "scalatest" % "2.2.4" % "test",
   "junit" % "junit" % "4.10" % "test"

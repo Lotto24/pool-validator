@@ -1,6 +1,6 @@
 package domain.products.awls
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class AwlsProductOrderFactory extends ProductOrderFactoryAI[AwlsBet, AwlsParticipationPools, AwlsGamingProductOrder]{

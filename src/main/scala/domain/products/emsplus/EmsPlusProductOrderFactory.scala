@@ -1,6 +1,6 @@
 package domain.products.emsplus
 
-import domain.PoolResourceProvider.ProductOrderFactoryAI
+import domain.ProductOrderFactoryAI
 import play.api.libs.json.JsObject
 
 class EmsPlusProductOrderFactory extends ProductOrderFactoryAI[EmsPlusBet, EmsPlusParticipationPools, EmsPlusGamingProductOrder]{

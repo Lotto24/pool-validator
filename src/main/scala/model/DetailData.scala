@@ -8,7 +8,7 @@ import domain.PoolValidator.CheckResult
 import domain.products.{Bet, ParticipationPools}
 import domain.products.GamingProduct._
 import domain.products.ParticipationPools.ParticipationPoolId
-import domain.{Order, PoolMetadata, PoolResource}
+import domain.{Order, OrderId, PoolMetadata, PoolResource}
 import model.ApplicationModel.{PoolSource, ValidationState}
 import model.ArchiveDetailData.OrderStats
 import model.OrderDirNavigatorItem.ProductInfos
@@ -88,11 +88,11 @@ object OrderHedgingDetailData{
 
 
 case class OrderDirectoryDetailData(path: Path,
-                                    orderId: String,
+                                    orderId: OrderId,
                                     validationState: ValidationState.Value,
                                     hasInvalidOrderDocs: Boolean,
                                     validationResults: Seq[CheckResult],
-                                    productInfos: ProductInfos) extends DetailData
+                                    productInfos: Option[ProductInfos]) extends DetailData
 
 
 case class ArchiveDetailData(poolSource: PoolSource,

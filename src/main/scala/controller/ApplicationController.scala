@@ -3,10 +3,10 @@ package controller
 import java.io.File
 import java.lang.Boolean
 import java.time.ZonedDateTime
+
 import javafx.beans.property.ReadOnlyProperty
 import javafx.beans.value.{ChangeListener, ObservableValue}
-
-import model.ApplicationModel.AppState
+import model.ApplicationModel.{AppState, TaskId}
 import model._
 import util.ThrottlingHelper
 import view.ApplicationView
@@ -178,7 +178,7 @@ class ApplicationController {
     appModel.validateArchiveEnabledProp.getValue
   }
 
-  def validateSingleOrder(item: NavigatorItem): Unit = {
+  def validateSingleOrder(item: OrderDirNavigatorItem): Unit = {
     appModel.validateSingleOrder(item)
   }
 
@@ -202,7 +202,7 @@ class ApplicationController {
     appModel.setSettings(settings)
   }
 
-  def cancelTask(taskId: String): Unit = {
+  def cancelTask(taskId: TaskId): Unit = {
     appModel.cancelTask(taskId)
   }
 

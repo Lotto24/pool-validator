@@ -255,8 +255,10 @@ class NavigatorView extends VBox {
         })
 
         item_validate.onAction = handle {
-          val x = treeCellSelf.delegate.getTreeItem.getValue
-          controller.validateSingleOrder(treeCellSelf.delegate.getTreeItem.getValue)
+          treeCellSelf.delegate.getTreeItem.getValue match {
+            case treeItem: OrderDirNavigatorItem => controller.validateSingleOrder(treeItem)
+            case _ =>
+          }
         }
       }
     }

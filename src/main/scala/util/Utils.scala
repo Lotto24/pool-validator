@@ -7,6 +7,7 @@ import java.security.cert.{CertificateFactory, X509Certificate}
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
+import java.util.concurrent.Callable
 
 import org.apache.commons.io.IOUtils
 import org.apache.commons.io.filefilter.DirectoryFileFilter
@@ -116,6 +117,10 @@ object Utils {
           case Success(_) => None
         }
     }
+  }
+
+  def toCallable[T](function: => T) : Callable[T] = new Callable[T](){
+    override def call(): T = function
   }
 
   def stringToOption(string:  String): Option[String] = if( (string == null) || string.isEmpty) None else Some(string)

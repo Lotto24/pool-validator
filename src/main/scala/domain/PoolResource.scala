@@ -90,12 +90,9 @@ case class PoolMetadata(override val docPath: Path,
 }
 
 
-/**
-  * @param directoryName should be the same as the hash generated from the order's json
-  **/
 case class Order(metaData: Metadata,
                  gamingProductOrders: Map[URI, GamingProductOrder],
-                 directoryName: String,
+                 orderId: OrderId,
                  override val docPath: Path,
                  override val rawData: IndexedSeq[Byte]) extends OrderDoc
 
@@ -178,3 +175,17 @@ object OrderMetadata{
 case class PoolDigestTimestamp(value: String,
                                          override val docPath: Path,
                                          override val rawData: IndexedSeq[Byte]) extends OrderDoc
+
+
+/** Container for all `OrderDoc`s for a single order.*/
+case class OrderDocs(
+  orderId: OrderId,
+  order: Try[Order],
+  orderResult: Try[OrderResult],
+  orderResultSignature: Try[OrderResultSignature],
+  orderResultSignatureTimestamp: Try[OrderResultSignatureTimestamp],
+  orderSignature: Try[OrderSignature],
+  orderMetadata: Try[OrderMetadata]
+) {
+  def getAll: IndexedSeq[Try[OrderDoc]] = Vector(order, orderResult, orderResultSignature, orderResultSignatureTimestamp, orderSignature, orderMetadata)
+}

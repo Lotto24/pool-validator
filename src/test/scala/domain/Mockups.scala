@@ -1,62 +1,84 @@
 package domain
 
 import java.net.URI
-import java.nio.file.Path
+import java.nio.file.Paths
 import java.time.Instant
 import java.util.concurrent.Executor
 
-import domain.PoolValidator.{ArchiveValidationResult, IntermediateResultCallback, OrderValidationResult}
+import domain.PoolValidator._
 import model.ApplicationSettingsManager.{LoadResult, Loaded}
 import model.{ApplicationSettings, ApplicationSettingsManagerAI}
-import org.scalatest.Matchers
-import util.Task.CancellableSupplierAI
-import util.{Task, TaskImpl}
+import monix.eval.Task
+import monix.execution.{Scheduler => MonixScheduler}
+import org.scalatest.{Assertions, Matchers}
 
-import scala.concurrent.ExecutionContext
 import scala.util.{Success, Try}
 
 
-
-/**
-  * Mockup implementations for tests.
-  */
+/** Mockup implementations for tests. */
 object Mockups {
 
-  /**
-    * `PoolValidator` mockup implementation for unit tests.
-    */
-  class PoolValidatorMockup(var preparedOrderValidationResults: IndexedSeq[OrderValidationResult] = IndexedSeq.empty,
-                            implicit val ec: ExecutionContext) extends PoolValidator {
-    private var credentialsProvider: CredentialsProvider = null
+  /** `PoolValidator` mockup implementation for unit tests. */
+  class PoolValidatorMockup(var preparedOrderValidationResults: IndexedSeq[OrderValidationResult] = IndexedSeq.empty
+  )(implicit val monixScheduler: MonixScheduler) extends PoolValidator with Assertions {
 
-    override def setCredentialsProvider(provider: CredentialsProvider): this.type = {
-      this.credentialsProvider = provider
-      this
+    override def validateOrder(orderId: OrderId, drawTime: Try[Instant]): Task[OrderValidationResult] = Task {
+      preparedOrderValidationResults.find(x => x.orderLocation == Paths.get(orderId)).getOrElse(
+        fail(s"no prepared results found for orderDirPath\n${Paths.get(orderId)}\n" + s"preparedResults.keys: \n${preparedOrderValidationResults.mkString("\n")}")
+      )
     }
 
-    override def validateOrder(orderDirPath: Path, drawTime: Try[Instant]): OrderValidationResult = {
-      val r = preparedOrderValidationResults.find(x => x.orderLocation == orderDirPath)
-      if (r.isEmpty) {
-        println(
-          s"""not found: results for orderDirPath\n${orderDirPath}
-              |preparedResults.keys: \n${preparedOrderValidationResults.mkString("\n")}
-         """.stripMargin)
-      }
-      r.get
-    }
-
-    override def validatePool(poolLocation: Path, drawTime: Try[Instant],
-                              intermediateResultCallback: IntermediateResultCallback): Task[ArchiveValidationResult] = {
-
-      new TaskImpl[ArchiveValidationResult](info="validatePool", new CancellableSupplierAI[ArchiveValidationResult] {
-        override def supply(): ArchiveValidationResult = {
-          preparedOrderValidationResults.zipWithIndex.foreach {
-            case (orderValidationR, i) => intermediateResultCallback.onOrderValidated(orderValidationR, i + 1)
-          }
-          val r = ArchiveValidationResult(poolLocation, poolValidationResults = IndexedSeq.empty, preparedOrderValidationResults)
-          r
+    override def validatePool(drawTime: Try[Instant],
+      intermediateResultCallback: IntermediateResultCallback): monix.eval.Task[ArchiveValidationResult] = {
+      Task {
+        preparedOrderValidationResults.zipWithIndex.foreach {
+          case (orderValidationR, i) => intermediateResultCallback.onOrderValidated(orderValidationR, i + 1)
         }
-      })
+        ArchiveValidationResult(Paths.get(""), poolValidationResults = IndexedSeq.empty, preparedOrderValidationResults)
+      }
+    }
+
+    override def validateOrderDocs(orderDocs: OrderDocs, drawtime: Try[Instant], poolMetadata: Try[PoolMetadata]): OrderValidationResult = {
+      preparedOrderValidationResults.find(_.orderId == orderDocs.orderId)
+        .getOrElse(fail(s"preparedOrderValidationResults is undefined for ${orderDocs.orderId}"))
+    }
+
+    override def validatePoolSeal(
+      orderIds: IndexedSeq[String], poolMetadata: Try[PoolMetadata], drawTime: Try[Instant], cbProgress: Option[ProgressIndicator] = None
+    ): IndexedSeq[PoolValidator.CheckResult] = ???
+  }
+
+
+  /** Dynamic "happy-path" validator that delivers `CheckOk` for known `PoolArchiveCheck`s.*/
+  class HappyPathPoolValidatorMock(allOrderIds: IndexedSeq[String]) extends PoolValidator() {
+    override def validateOrder(orderId: OrderId, drawTime: Try[Instant]): Task[OrderValidationResult] = Task.pure(
+      OrderValidationResult(Paths.get(orderId), OrderCheck.values.map(check => CheckOk(check)).toVector)
+    )
+
+    override def validateOrderDocs(orderDocs: OrderDocs, drawtime: Try[Instant], poolMetadata: Try[PoolMetadata]): OrderValidationResult = {
+      OrderValidationResult(Paths.get(orderDocs.orderId), OrderCheck.values.map(check => CheckOk(check)).toVector)
+    }
+
+    override def validatePoolSeal(
+      orderIds: IndexedSeq[String], poolMetadata: Try[PoolMetadata], drawTime: Try[Instant], cbProgress: Option[ProgressIndicator]
+    ): IndexedSeq[PoolValidator.CheckResult] = {
+      PoolSealCheck.values.map(check => CheckOk(check))
+    }
+
+    override def validatePool(
+      drawTime: Try[Instant], intermediateResultCallback: PoolValidator.IntermediateResultCallback
+    ): Task[PoolValidator.ArchiveValidationResult] = {
+      val orderValidationResults = allOrderIds.zipWithIndex.map { case (orderId, index) =>
+        val ovr = OrderValidationResult(Paths.get(orderId), OrderCheck.values.map(check => CheckOk(check)).toVector)
+        intermediateResultCallback.onOrderValidated(ovr, index + 1)
+        ovr
+      }
+      Task.pure(
+        PoolValidator.ArchiveValidationResult(Paths.get(""),
+          poolValidationResults = PoolSealCheck.values.map(check => CheckOk(check)),
+          orderValidationResults = orderValidationResults
+        )
+      )
     }
   }
 
@@ -79,7 +101,7 @@ object Mockups {
     * In order to do unit-tests (without a running JavaFX-Thread) the `ApplicationModel` uses an abstraction
     * about the runLater invocation: `runLaterExecutor: Executor`.
     * `RunLaterExecutor4Tests` is the implementation used for unit-tests.
-    * */
+    **/
   class RunLaterExecutor4Tests extends Executor with Matchers {
 
     import RunLaterExecutor4Tests.Mode
@@ -122,10 +144,11 @@ object Mockups {
 
 
   object RunLaterExecutor4Tests {
+
     object Mode extends Enumeration {
       val RunAtOnce, PutToQueue = Value
     }
-  }
 
+  }
 
 }

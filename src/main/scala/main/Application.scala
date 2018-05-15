@@ -3,23 +3,25 @@ package main
 import java.io.File
 import java.lang.Thread.UncaughtExceptionHandler
 import java.nio.file.Path
-import java.util.concurrent.{Executor, Executors}
-import javafx.application.Platform
-import javafx.scene.image.Image
+import java.util.concurrent.Executor
 
 import controller.ApplicationController
 import domain._
-import model.{ApplicationModel, ApplicationSettingsManagerPropertyImpl}
+import javafx.application.Platform
+import javafx.scene.image.Image
+import model.{ApplicationModel, ApplicationSettingsManagerPropertyImpl, PoolResourceProviderFactoryImpl}
+import monix.execution.{Scheduler => MonixScheduler}
 import org.slf4j.LoggerFactory
-import util.Utils
-import util.Utils.{ErrorMsg, mkFailure}
-import view.ApplicationView
-
-import scala.util.{Failure, Success, Try}
 import scalafx.Includes._
 import scalafx.application.JFXApp
 import scalafx.application.JFXApp.PrimaryStage
 import scalafx.scene.Scene
+import util.Utils
+import util.Utils.{ErrorMsg, mkFailure}
+import view.ApplicationView
+
+import scala.concurrent.ExecutionContextExecutor
+import scala.util.{Failure, Success, Try}
 
 object Application extends JFXApp {
 
@@ -34,15 +36,15 @@ object Application extends JFXApp {
   val appView = new ApplicationView
   val appController = new ApplicationController
 
-  implicit val executionContext = scala.concurrent.ExecutionContext.Implicits.global
+  implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.Implicits.global
+
+  implicit val scheduler: MonixScheduler = monix.execution.Scheduler.Implicits.global
 
   val logger = LoggerFactory.getLogger(getClass)
-  val archiveReader = new ArchiveReaderImpl
-  val resourceProvider = new PoolResourceProviderImpl
-
-  val availableProcessors = Runtime.getRuntime().availableProcessors()
-  val asyncTaskExecutor = Executors.newFixedThreadPool(availableProcessors + 1)
-  val validator = new PoolValidatorImpl(resourceProvider, executionContext, new CredentialsManagerImpl, DefaultSignatureAlgMapper)
+  val resourceProviderFactory = new PoolResourceProviderFactoryImpl(
+    new OrderDocumentsParserPlayImpl(CompositeProductOrderFactory.allProductsOrderFactory),
+    orderDocsCacheSize = 10
+  )
 
   val jfxRunLaterExecutor = new Executor() {
     override def execute(command: Runnable): Unit = Platform.runLater(command)
@@ -66,16 +68,16 @@ object Application extends JFXApp {
 
 
   private def launchApplication(configFile: File): Unit = {
+    logger.info(s"launching application - available processors: ${Runtime.getRuntime().availableProcessors()}")
+    
     appModel = new ApplicationModel(
-      archiveReader,
-      resourceProvider,
-      validator,
+      resourceProviderFactory,
+      PoolValidatorFactoryImpl,
       new ApplicationSettingsManagerPropertyImpl,
-      credentialsManager = new CredentialsManagerImpl,
+      new CredentialsManagerImpl,
       configFile = configFile,
       runLaterExecutor = jfxRunLaterExecutor,
-      asyncTaskExecutor = asyncTaskExecutor,
-      executionContext = scala.concurrent.ExecutionContext.Implicits.global
+      implicitly[MonixScheduler]
     )
 
     appController.assign(appModel, appView)

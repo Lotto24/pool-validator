@@ -86,6 +86,7 @@ object OrderDocumentsParser {
 class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) extends OrderDocumentsParser {
 
   override def parseOrder(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[Order] = Try {
+    assert(filePath.getNameCount >= 2, s"parseOrder(): provided path must have a length >= 2 (path: '${filePath.getFileName}')")
     val node = Json.parse(jsonBytes.toArray)
     val metaData = Metadata(
       retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String],
@@ -102,7 +103,6 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
       (productURI, lotteryProductOrder)
     }.toMap
 
-    assert(filePath.getNameCount >= 2, s"parseOrder(): provided path must have a length >= 2 (path: '${filePath.getFileName}')")
     val directoryName = filePath.getParent.getFileName.toString
     Order(metaData = metaData, gamingProductOrders = gamingProductOrders,
       docPath = filePath, orderId = directoryName, rawData = jsonBytes)

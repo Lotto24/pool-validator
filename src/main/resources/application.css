@@ -257,9 +257,18 @@ detail-view
     -fx-max-width: 100;
 }
 
+.archive-detail-pane .table-view.betcount-breakdown {
+    -fx-fixed-cell-size: 24;
+}
+
+.archive-detail-pane .table-view.betcount-breakdown .column-header .label {
+    -fx-alignment: center-left;
+}
+
 .detail-view .detail-pane .key-value-pair.metadata {
     -fx-max-width: 600;
 }
+
 
 .detail-view .label.producturl {
     -fx-translate-x: 20;
@@ -589,7 +598,7 @@ Utils
 .section-separator {
     -fx-font-weight: bold;
     -fx-font-size: 16;
-    -fx-padding: 5 0 10 0;
+    -fx-padding: 20 0 10 0;
 }
 
 .section-separator.indent2 {

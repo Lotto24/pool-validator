@@ -8,9 +8,9 @@ import domain.PoolValidator.CheckResult
 import domain.products.{Bet, ParticipationPools}
 import domain.products.GamingProduct._
 import domain.products.ParticipationPools.ParticipationPoolId
-import domain.{Order, OrderId, PoolMetadata, PoolResource}
+import domain._
 import model.ApplicationModel.{PoolSource, ValidationState}
-import model.ArchiveDetailData.OrderStats
+import model.ArchiveDetailData.{BetBreakdownRowItem, OrderStats}
 import model.OrderDirNavigatorItem.ProductInfos
 import model.OrderHedgingDetailData.RowData
 import util.Utils.ErrorMsg
@@ -99,18 +99,47 @@ case class ArchiveDetailData(poolSource: PoolSource,
                              poolMetadata: PoolMetadata,
                              poolDigestTimestamp: Option[IndexedSeq[Byte]],
                              orderStats: OrderStats,
+                             betBreakdownRowData: Vector[BetBreakdownRowItem],
                              extractedToDir: Path,
                              validationState: ValidationState.Value,
                              totalOrdersCount: Int,
                              validatedOrdersCount: Int,
                              validOrdersCount: Int,
-                             invalidOrdersCount: Int) extends DetailData
+                             invalidOrdersCount: Int
+) extends DetailData {
+  def productIds: Set[GamingProductId] = orderStats.betCountBreakdown.keySet
+}
+
 
 
 object ArchiveDetailData {
 
-  case class OrderStats(totalOrdersCount: Int, betsCountPerProduct: Option[Map[GamingProductId, Int]])
+  case class OrderStats(
+    totalOrdersCount: Int, 
+    betCountBreakdown: Map[GamingProductId, Map[Retailer, Map[Option[Origin], Int]]],
+    ordersCountBreakdown: Map[Retailer, Map[Option[Origin], Int]]
+  ) {
+    
+    def allRetailers: Set[Retailer] = betCountBreakdown.values.flatMap(_.keys).toSet
+    
+    def allOrigins: Set[Option[Origin]] = betCountBreakdown.values.flatMap(x => x.get('mylotto24).map(_.keys)).toSet.flatten
+    
+    def originsFor(retailer: Retailer): Set[Option[Origin]] = betCountBreakdown.values.flatMap(x => x.get(retailer).map(_.keys)).toSet.flatten
 
+    def betsCountPerProduct: Map[GamingProductId, Int] = betCountBreakdown.mapValues(_.values.map(_.values.sum).sum)
+
+    def getOrdersCountFor(retailer: Retailer, origin: Option[Origin]): Int = {
+      ordersCountBreakdown.get(retailer).flatMap(_.get(origin)).getOrElse(0)
+    }
+  }
+
+  /** Row data for the breakdown `TableView`. */
+  case class BetBreakdownRowItem(
+    retailer: Retailer, 
+    origin: Option[Origin], 
+    ordersCount: Int, 
+    betCountPerProduct: Map[GamingProductId, Int]
+  )
 }
 
 

@@ -12,9 +12,10 @@ import domain.OrderCheck.{OrderAcceptedCheck, PoolParticipationCheck}
 import domain.PoolResource.Filenames
 import domain.PoolValidator.{CheckFailure, CheckOk, OrderValidationResult}
 import domain._
-import domain.products.ML24GamingProduct.EJS
+import domain.products.ML24GamingProduct._
 import model.ApplicationModel.{ValidationState, _}
 import model.ApplicationSettings._
+import model.ArchiveDetailData.BetBreakdownRowItem
 import monix.execution.Scheduler.Implicits.global
 import monix.execution.{Scheduler => MonixScheduler}
 import org.apache.commons.io.FilenameUtils
@@ -202,28 +203,77 @@ class ApplicationModelSpec extends FunSpec with Matchers with ScalaFutures with 
         }
       }
     }
-
-    it("should update the archive-detail-data with betsCount-per-product-infos when the archive is selected") {
-      withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
-        setup.loadPoolArchive_blocking(defaultArchiveFile)
-        setup.selectNavigatorItem(Paths.get(""))
-        setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
-
-        setup.runLaterExecutor.executeAll()
-
-        //all OrderDirNavigatorItems should hold productInfos now:
-        val orderDirNavItems = model.navigatorContentRoot.getChildren.map(_.getValue.asInstanceOf[OrderDirNavigatorItem])
-
-        withClue(s"all OrderDirNavigatorItems should hold productInfos now\n${orderDirNavItems.mkString("\n")}") {
-          orderDirNavItems.forall(_.productInfos != None) shouldBe true
-        }
-
-        setup.withExpectedDetailData[ArchiveDetailData] { archiveDetailData =>
-          archiveDetailData.orderStats.totalOrdersCount shouldBe model.getTotalOrdersCount
-          archiveDetailData.orderStats.betsCountPerProduct.isDefined shouldBe true
-          archiveDetailData.orderStats.betsCountPerProduct.get.get(EJS.id) shouldBe Some(14)
+    
+    describe("visualization of archive details") {
+  
+      it("archive-detail-data should be updated when the archive is selected") {
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
+          setup.loadPoolArchive_blocking(defaultArchiveFile)
+          setup.selectNavigatorItem(Paths.get(""))
+          setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
+  
+          setup.runLaterExecutor.executeAll()
+  
+          //all OrderDirNavigatorItems should hold productInfos now:
+          val orderDirNavItems = model.navigatorContentRoot.getChildren.map(_.getValue.asInstanceOf[OrderDirNavigatorItem])
+  
+          withClue(s"all OrderDirNavigatorItems should hold productInfos now\n${orderDirNavItems.mkString("\n")}") {
+            orderDirNavItems.forall(_.productInfos != None) shouldBe true
+          }
+  
+          setup.withExpectedDetailData[ArchiveDetailData] { archiveDetailData =>
+            archiveDetailData.orderStats.totalOrdersCount shouldBe model.getTotalOrdersCount
+            archiveDetailData.orderStats.betsCountPerProduct.get(EJS.id) shouldBe Some(14)
+            archiveDetailData.betBreakdownRowData shouldBe Vector(
+              BetBreakdownRowItem(retailer = Symbol("retailer"), origin = None, ordersCount = 7,
+                betCountPerProduct = Map(EJS.id -> 14)
+              )
+            )
+          }
         }
       }
+
+      it("archive detail bets breakdown data should be correct") {
+        withTestSetup(new ApplicatonModelTestEnv()) { (setup, model) =>
+          setup.loadPoolDirectory_blocking(gls_2018_05_05_partial_multiRetailer)
+          setup.selectNavigatorItem(Paths.get(""))
+          setup.expectDetailDataType(Some(classOf[ArchiveDetailData]))
+
+          setup.runLaterExecutor.executeAll()
+
+          //all OrderDirNavigatorItems should hold productInfos now:
+          val orderDirNavItems = model.navigatorContentRoot.getChildren.map(_.getValue.asInstanceOf[OrderDirNavigatorItem])
+
+          withClue(s"all OrderDirNavigatorItems should hold productInfos now\n${orderDirNavItems.mkString("\n")}") {
+            orderDirNavItems.forall(_.productInfos != None) shouldBe true
+          }
+
+          setup.withExpectedDetailData[ArchiveDetailData] { archiveDetailData =>
+            archiveDetailData.orderStats.totalOrdersCount shouldBe model.getTotalOrdersCount
+            archiveDetailData.orderStats.betsCountPerProduct.get(MMLS.id) shouldBe None
+            archiveDetailData.orderStats.betsCountPerProduct.get(GLS.id) shouldBe Some(21)
+            archiveDetailData.orderStats.betsCountPerProduct.get(S6.id) shouldBe Some(1)
+            archiveDetailData.orderStats.betsCountPerProduct.get(S77.id) shouldBe Some(1)
+            archiveDetailData.betBreakdownRowData shouldBe Vector(
+              BetBreakdownRowItem(retailer = Symbol("lotto-network"), origin = Some(Symbol("1040-1040-1040")), ordersCount = 2, 
+                betCountPerProduct = Map(GLS.id -> 4, S77.id -> 0, S6.id -> 0)
+              ),
+              BetBreakdownRowItem(retailer = Symbol("lotto-network"), origin = Some(Symbol("2-2-2")), ordersCount = 1, 
+                betCountPerProduct = Map(GLS.id -> 1, S77.id -> 0, S6.id -> 0)
+              ),
+              BetBreakdownRowItem(retailer = Symbol("mylotto24"), origin = Some(Symbol("MYLOTTO24_AU")), ordersCount = 2, 
+                betCountPerProduct = Map(GLS.id -> 6, S77.id -> 0, S6.id -> 0)
+              ),
+              BetBreakdownRowItem(retailer = Symbol("mylotto24"), origin = Some(Symbol("MYLOTTO24_IE")), ordersCount = 2, 
+                betCountPerProduct = Map(GLS.id -> 3, S77.id -> 1, S6.id -> 1)
+              ),
+              BetBreakdownRowItem(retailer = Symbol("mylotto24"), origin = Some(Symbol("TIPP24_COM")), ordersCount = 1, 
+                betCountPerProduct = Map(GLS.id -> 7, S77.id -> 0, S6.id -> 0)
+              )
+            )
+          }
+        }        
+      }  
     }
 
     describe("instantiated with invalid settings (non-existing key-file)") {
@@ -1443,4 +1493,9 @@ object ApplicatonModelTestEnv {
   val defaultArchiveDirectory: File = new File(new File(System.getProperty("user.dir")),
     "src/test/resources/testdata_qa/ejs-2016-02-26_dev_closed")
   
+  val mmls_2018_05_08_archive: File = new File(new File(System.getProperty("user.dir")),
+    "src/test/resources/testdata_qa/mmls-2018-05-08.tgz")
+  
+  val gls_2018_05_05_partial_multiRetailer = new File(new File(System.getProperty("user.dir")),
+    "src/test/resources/testdata_qa/gls-2018-05-05_partial_multiRetailer")
 }

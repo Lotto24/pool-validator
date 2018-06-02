@@ -2,20 +2,16 @@ package domain
 
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.time.{DayOfWeek, LocalDate, ZonedDateTime}
 import java.util.Base64
 
+import _root_.util.Utils
 import domain.Order.Metadata
 import domain.OrderDocumentsParser.ProductOrderFactory
 import domain.OrderMetadata.{DrawHedgingData, OrderHedgingData}
 import domain.PoolMetadata.PoolDigest
 import domain.products.GamingProduct.{GamingProductId, gamingProductIdFromURI}
-import domain.products.{GamingProductOrder, ML24GamingProduct, ParticipationPools}
-import org.bouncycastle.tsp.TimeStampResponse
-import play.api.libs.json._
-import _root_.util.Utils
-import domain.PoolResource.Filenames
 import domain.products.amls.{AmlsGamingProductOrder, AmlsProductOrderFactory}
 import domain.products.aols.{AolsGamingProductOrder, AolsProductOrderFactory}
 import domain.products.apls.{AplsGamingProductOrder, AplsProductOrderFactory}
@@ -29,9 +25,9 @@ import domain.products.fls.{FlsGamingProductOrder, FlsProductOrderFactory}
 import domain.products.gls.{GlsGamingProductOrder, GlsProductOrderFactory}
 import domain.products.glss.{GlsSGamingProductOrder, GlsSProductOrderFactory}
 import domain.products.irishraffle.{IrishRaffleGamingProductOrder, IrishRaffleProductOrderFactory}
-import domain.products.irls.{IrlsGamingProductOrder, IrlsProductOrderFactory}
 import domain.products.irls.p1.{IrlsP1GamingProductOrder, IrlsP1ProductOrderFactory}
 import domain.products.irls.p2.{IrlsP2GamingProductOrder, IrlsP2ProductOrderFactory}
+import domain.products.irls.{IrlsGamingProductOrder, IrlsProductOrderFactory}
 import domain.products.keno.{KenoGamingProductOrder, KenoProductOrderFactory}
 import domain.products.mmls.{MmlsGamingProductOrder, MmlsProductOrderFactory}
 import domain.products.pls.{PlsGamingProductOrder, PlsProductOrderFactory}
@@ -43,6 +39,9 @@ import domain.products.ukls.{UklsGamingProductOrder, UklsProductOrderFactory}
 import domain.products.uktbls.{UktblsGamingProductOrder, UktblsProductOrderFactory}
 import domain.products.uspbls.{UspblsGamingProductOrder, UspblsProductOrderFactory}
 import domain.products.xmasl.{XmaslGamingProductOrder, XmaslProductOrderFactory}
+import domain.products.{GamingProductOrder, ML24GamingProduct, ParticipationPools}
+import org.bouncycastle.tsp.TimeStampResponse
+import play.api.libs.json._
 
 import scala.collection.immutable.HashMap
 import scala.util.{Failure, Success, Try}
@@ -88,9 +87,13 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
   override def parseOrder(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[Order] = Try {
     assert(filePath.getNameCount >= 2, s"parseOrder(): provided path must have a length >= 2 (path: '${filePath.getFileName}')")
     val node = Json.parse(jsonBytes.toArray)
+    val retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String]
+    val retailer = Symbol(Try(Paths.get(retailerHref).getFileName.toString).toOption.getOrElse("unknown retailer"))
     val metaData = Metadata(
-      retailerHref = (node \ "metadata" \ "retailer" \ "href").as[String],
-      retailCustomer = (node \ "metadata" \ "retail-customer").as[String],
+      retailerHref = retailerHref,
+      retailer = retailer,
+      retailCustomerId = (node \ "metadata" \ "retail-customer").as[String],
+      origin = (node \ "metadata" \ "origin").asOpt[String].map(Symbol(_)),
       retailerOrderReference = (node \ "metadata" \ "retailer-order-reference").as[String],
       creationDate = {
         ZonedDateTime.parse((node \ "metadata" \ "creation-date").as[String], Metadata.CreationDateFormat)

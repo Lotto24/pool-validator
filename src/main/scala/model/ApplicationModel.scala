@@ -20,6 +20,7 @@ import javafx.beans.property._
 import javafx.collections.{FXCollections, ObservableList}
 import javafx.scene.control.TreeItem
 import model.ApplicationModel._
+import model.ArchiveDetailData.BetBreakdownRowItem
 import model.NavigatorTreeItem._
 import model.OrderDirNavigatorItem.ProductInfos
 import model.base.EventHandlerRegistry
@@ -94,7 +95,7 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
   }
 
   private[model] var resourceProvider: Option[PoolResourceProvider] = None
-  private var _totalOrdersCount = 0
+  private var archiveStats = new ArchiveStats
   private[model] var _validationStats = new ValidationStats()
   
   //cached values (needed for performance reasons, obtaining it from navigatorContentRoot.getChildren is too slow..)
@@ -354,24 +355,45 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
 
     val validator = validatorFactory.getValidator(resourceProvider.get, credentialsManager, monixScheduler)
 
-    _totalOrdersCount = resourceProvider.get.getOrdersCount().getOrElse(0)
-    logger.info(s"generateNavigatorItems() - resourceProvider.get.getOrderDirPaths() #orders:${_totalOrdersCount}, duration: ${Duration.between(tsBefore, Instant.now())}")
+    archiveStats.totalOrdersCount = resourceProvider.get.getOrdersCount().getOrElse(0)
+    logger.info(s"generateNavigatorItems() - resourceProvider.get.getOrderDirPaths() #orders:${getTotalOrdersCount}, duration: ${Duration.between(tsBefore, Instant.now())}")
 
     val i = new AtomicLong(0)
     resourceProvider.get.getOrderDocsObservable().mapParallelUnordered(parallelism = Runtime.getRuntime().availableProcessors()) {
       case Success(docsForOneOrder) =>
         Task {
           val orderDirItem = generateNavigatorItemsForOneOrder(docsForOneOrder)
-          val progressPercent: Double = Math.round((i.incrementAndGet() / _totalOrdersCount.toDouble) * 100.0) / 100.0
+          val orderDirItemDowncasted = orderDirItem.asInstanceOf[TreeItemExt[NavigatorItem]]
+          val retailer = orderDirItem.getValue.retailer
+          val origin = orderDirItem.getValue.origin
+          
+          archiveStats.synchronized {
+            //update orders breakdown
+            val retailerMap = archiveStats.ordersCountBreakdown.getOrElseUpdate(retailer, mutable.Map.empty[Option[Origin], Int])
+            val currentCount = retailerMap.getOrElse(origin, 0)
+            retailerMap.update(origin, currentCount + 1)
+
+            //update bet count breakdown
+            orderDirItem.getValue.productInfos.foreach { productInfo =>
+              productInfo.betCountPerProduct.foreach { case (productId, count) =>
+                val retailerMap = archiveStats.betCountBreakdown.getOrElseUpdate(productId, mutable.Map.empty[Retailer, mutable.Map[Option[Origin], Int]])
+                val originMap = retailerMap.getOrElseUpdate(retailer, mutable.Map.empty[Option[Origin], Int])
+                val currentCount = originMap.getOrElse(origin, 0)
+                originMap.update(origin, currentCount + count)
+              }
+            }
+          }
+          
+          val progressPercent: Double = Math.round((i.incrementAndGet() / getTotalOrdersCount.toDouble) * 100.0) / 100.0
           if (progressPercent != backgroundTaskInfoProp.value.map(_.progress).getOrElse(0)) {
             progressCb(progressPercent)
           }
           if (validateOnLoading) {
             val vr = validator.validateOrderDocs(docsForOneOrder, getDrawTime, poolMetadata)
             updateValidationStatsThreadSafe(vr)
-            attachValidationResults(orderDirItem, vr)
+            attachValidationResults(orderDirItemDowncasted, vr)
           }
-          Some(orderDirItem)
+          Some(orderDirItemDowncasted)
         }
 
       case Failure(t) =>
@@ -382,12 +404,14 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
       .map(_.result().sortBy(_.getValue.displayName))
   }
 
-  private def generateNavigatorItemsForOneOrder(docsForOneOrder: OrderDocs): TreeItemExt[NavigatorItem] = {
+  private def generateNavigatorItemsForOneOrder(docsForOneOrder: OrderDocs): TreeItemExt[OrderDirNavigatorItem] = {
     val order = docsForOneOrder.order
     if (order.isFailure)
       logger.error(s"failed to load order in ${docsForOneOrder.orderId}", order.failed.get)
     val navItem = OrderDirNavigatorItem(
       relativePath = Paths.get(docsForOneOrder.orderId),
+      retailer = order.map(_.metaData.retailer).getOrElse(Symbol("no retailer")),
+      origin = order.toOption.flatMap(_.metaData.origin),
       retailerOrderReference = order.map(_.metaData.retailerOrderReference).getOrElse(""),
       validationState = ValidationState.NotValidated,
       hasInvalidOrderDocs = false,
@@ -399,7 +423,7 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
         orderDirItem.filteredChildren_source.add(new TreeItemExt[NavigatorItem](OrderDocNavigatorItem(relativePath = orderDoc.docPath)))
       }
     }
-    orderDirItem
+    orderDirItem.asInstanceOf[TreeItemExt[OrderDirNavigatorItem]]
   }
 
   private def createProductInfosFor(order: Order): ProductInfos = {
@@ -411,7 +435,7 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
   }
 
   private def resetModelState(): Future[Unit] = {
-    _totalOrdersCount = 0
+    archiveStats = new ArchiveStats
     resetCachedArchiveData()
 
     _drawDateInfosProp.setValue(None)
@@ -555,28 +579,27 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
   private def createArchiveDetailData(): Try[ArchiveDetailData] = {
     poolSourceProp.getValue.map { poolSource =>
       resourceProvider.get.getPoolMetadata().map { poolMetaInfos =>
-        val productInfos = navigatorContentRoot.filteredChildren_source.collect {
-          case NavigatorTreeItem(orderDirNavItem: OrderDirNavigatorItem) => orderDirNavItem
-        }.flatMap(_.productInfos)
-
-        var betsCountPerProduct = Map.empty[GamingProductId, Int]
-
-        productInfos.foreach { pi =>
-          pi.betCountPerProduct.foreach { case (productId, betsCount) =>
-            val newCount = betsCountPerProduct.get(productId).getOrElse(0) + betsCount
-            betsCountPerProduct = betsCountPerProduct.updated(productId, newCount)
+        val orderStats = ArchiveDetailData.OrderStats(totalOrdersCount = getTotalOrdersCount,
+          betCountBreakdown = archiveStats.getBetCountBreakdown,
+          ordersCountBreakdown = archiveStats.getOrdersCountBreakdown
+        )
+        val rowData: Vector[BetBreakdownRowItem] = for {
+          retailer <- orderStats.allRetailers.toVector.sortBy(_.name)
+          origin <- orderStats.originsFor(retailer).toVector.sortBy(_.map(_.name).getOrElse(""))
+        } yield {
+          val betCountPerProductMap = orderStats.betCountBreakdown.mapValues { case retailerMap =>
+            val count = retailerMap.get(retailer).flatMap(_.get(origin)).getOrElse(0)
+            count
           }
+          BetBreakdownRowItem(retailer, origin, orderStats.getOrdersCountFor(retailer, origin), betCountPerProductMap)
         }
 
-        val orderStats = ArchiveDetailData.OrderStats(totalOrdersCount = getTotalOrdersCount,
-          betsCountPerProduct = Some(betsCountPerProduct))
-
         val poolDigestTimestamp = resourceProvider.get.getPoolDigestTimestamp().map(_.rawData)
-
         ArchiveDetailData(poolSource = poolSourceProp.getValue.get,
           poolMetadata = poolMetaInfos,
           poolDigestTimestamp = poolDigestTimestamp.toOption,
           orderStats = orderStats,
+          betBreakdownRowData = rowData,
           extractedToDir = poolSource.path,
           validationState = validationStateProp.getValue,
           totalOrdersCount = getTotalOrdersCount,
@@ -961,7 +984,6 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
         }
       }
     }
-    
   }
 
   private def integrateOrderValidationResults(
@@ -1056,7 +1078,7 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
     **/
   private def findOrderDirNavTreeItem(path: Path): Option[TreeItemExt[NavigatorItem]] = {
     val dummyTreeItem4BinarySearch = new TreeItemExt[NavigatorItem](
-      OrderDirNavigatorItem(relativePath = path, retailerOrderReference = "", validationState = ValidationState.NotValidated,
+      OrderDirNavigatorItem(relativePath = path, retailer = Symbol(""), origin=None, retailerOrderReference = "", validationState = ValidationState.NotValidated,
         hasInvalidOrderDocs = false, validationResults = EmptyValidationResults, productInfos = None)
     )
     val index = Collections.binarySearch(navigatorContentRoot.filteredChildren_source, dummyTreeItem4BinarySearch,
@@ -1187,7 +1209,7 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
   /**
     * Delivers the total order count of the loaded pool archive (without considering any Navigator-filters).
     **/
-  def getTotalOrdersCount: Int = _totalOrdersCount
+  def getTotalOrdersCount: Int = archiveStats.totalOrdersCount
 
   /**
     * Delivers the count of `OrderDirNavigatorItems` currently visible in the NavigatorView
@@ -1299,17 +1321,20 @@ class ApplicationModel(resourceProviderFactory: PoolResourceProviderFactory,
         filterStr =>
           genericPredicateOf { treeItem =>
             val displayNameMatches = treeItem.getValue.displayName.contains(filterStr)
-            val retailerOrderIdMatches: Boolean = if (displayNameMatches) false else {
-              treeItem.getValue match {
-                case o: OrderDirNavigatorItem =>
-                  o.retailerOrderReference.contains(filterStr)
-                case _ => false
-              }
-            }
-            displayNameMatches || retailerOrderIdMatches
+            displayNameMatches || 
+              matchOrderDirNavigatorItem(treeItem)(_.retailerOrderReference.contains(filterStr)) ||
+              matchOrderDirNavigatorItem(treeItem)(_.retailer.name.contains(filterStr)) ||
+              matchOrderDirNavigatorItem(treeItem)(_.origin.map(_.name.contains(filterStr)).contains(true)) ||
+              matchOrderDirNavigatorItem(treeItem)(_.productInfos.map(_.betCountPerProduct.keySet.exists(_.name.contains(filterStr))).contains(true))
           }
       }
       copy(activeFilters = calcActiveFilters)
+    }
+    
+    private def matchOrderDirNavigatorItem(treeItem: TreeItem[NavigatorItem])(pred: OrderDirNavigatorItem => Boolean): Boolean = treeItem.getValue match {
+      case o: OrderDirNavigatorItem =>
+        pred(o)
+      case _ => false
     }
 
     private def calcActiveFilters: Seq[Predicate[TreeItem[NavigatorItem]]] = {
@@ -1387,6 +1412,18 @@ object ApplicationModel {
     val NotValidated, PartiallyValidated, CompletelyValidated = Value
   }
 
+  class ArchiveStats(
+    var totalOrdersCount: Int = 0,
+    val betCountBreakdown: mutable.Map[GamingProductId, mutable.Map[Retailer, mutable.Map[Option[Origin], Int]]] = mutable.Map.empty[GamingProductId, mutable.Map[Retailer, mutable.Map[Option[Origin], Int]]],
+    val ordersCountBreakdown: mutable.Map[Retailer, mutable.Map[Option[Origin], Int]] = mutable.Map.empty[Retailer, mutable.Map[Option[Origin], Int]]
+  ) {
+    def getBetCountBreakdown: Map[GamingProductId, Map[Retailer, Map[Option[Origin], Int]]] = betCountBreakdown.mapValues(_.mapValues(_.toMap).toMap).toMap
+    
+    def getBetCountsPerProduct: Map[GamingProductId, Int] = betCountBreakdown.mapValues(_.values.map(_.values.sum).sum).toMap
+    
+    def getOrdersCountBreakdown: Map[Retailer, Map[Option[Origin], Int]] = ordersCountBreakdown.mapValues(_.toMap).toMap
+  }
+  
   class ValidationStats(
     val validatedOrderIds: mutable.HashSet[String] = mutable.HashSet.empty[String],
     var validatedOrdersCount: Int = 0,

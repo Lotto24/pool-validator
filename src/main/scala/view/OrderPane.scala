@@ -123,7 +123,7 @@ class GenericOrderPane[O <: GamingProductOrder, P <: ParticipationPools : ClassT
   }
     
   override def setOrder(order: GamingProductOrder): this.type = {
-    this.kvl_productId.setValue(gamingProductIdFromURI(order.productURI))
+    this.kvl_productId.setValue(gamingProductIdFromURI(order.productURI).name)
     this.kvl_variant.setValue(order.variant.getOrElse(""))
     tableViewBets.getItems.setAll(order.bets.asInstanceOf[Seq[B]]: _*)
     poolSpecsPane.setValue(order.participationPools)

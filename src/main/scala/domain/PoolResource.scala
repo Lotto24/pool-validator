@@ -99,7 +99,9 @@ case class Order(metaData: Metadata,
 object Order {
 
   case class Metadata(retailerHref: String,
-                      retailCustomer: String,
+                      retailer: Retailer,
+                      retailCustomerId: String,
+                      origin: Option[Origin],
                       retailerOrderReference: String,
                       creationDate: ZonedDateTime)
 

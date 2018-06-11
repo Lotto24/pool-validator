@@ -113,8 +113,9 @@ class OrderDocumentsParserPlayImplTest extends FunSpec with Assertions with Matc
         withClue("orderId")(o.orderId shouldEqual "07ggP6UWr8P_KAXApgtnnoLxu-_LclmsUTq7nvBzWcw")
         withClue("rawData")(o.rawData shouldEqual data)
         withClue("metaData.creationDate")(o.metaData.creationDate.toString shouldEqual "2015-12-13T01:26:35.101Z[UTC]")
-        withClue("metaData.retailCustomer")(o.metaData.retailCustomer shouldEqual "4ce49757-5a95-42a4-9e2f-db59d4f06c7b")
+        withClue("metaData.retailCustomer")(o.metaData.retailCustomerId shouldEqual "4ce49757-5a95-42a4-9e2f-db59d4f06c7b")
         withClue("metaData.retailerHref")(o.metaData.retailerHref shouldEqual "http://www.operator.com/entities/retailer")
+        withClue("metaData.retailer")(o.metaData.retailer.name shouldEqual "retailer")
         withClue("metaData.retailerOrderReference")(o.metaData.retailerOrderReference shouldEqual "3581044c-be0d-4f4d-b86e-69c3e7c05cb2")
         withClue("metaData.retailerOrderReference")(o.gamingProductOrders.size shouldEqual 1)
 
@@ -140,8 +141,9 @@ class OrderDocumentsParserPlayImplTest extends FunSpec with Assertions with Matc
         withClue("docPath")(o.docPath shouldEqual Paths.get("orderId/order"))
 
         withClue("metaData.creationDate")(o.metaData.creationDate.toString shouldEqual "2017-02-05T13:22:47.123Z")
-        withClue("metaData.retailCustomer")(o.metaData.retailCustomer shouldEqual "ff97acdb-d79a-4f8b-b6ae-8ada63d9ea38")
+        withClue("metaData.retailCustomer")(o.metaData.retailCustomerId shouldEqual "ff97acdb-d79a-4f8b-b6ae-8ada63d9ea38")
         withClue("metaData.retailerHref")(o.metaData.retailerHref shouldEqual "http://zoe.mylotto24.co.uk/entities/mylotto24")
+        withClue("metaData.retailer")(o.metaData.retailer.name shouldEqual "mylotto24")
         withClue("metaData.retailerOrderReference")(o.metaData.retailerOrderReference shouldEqual "8e0c2944-6303-4ed2-8342-2f3bbfe921bd")
         withClue("order.gamingProductOrders") {
           val productIdsInOrder: Set[GamingProductId] = o.gamingProductOrders.keys.map { uri =>
@@ -437,7 +439,7 @@ class OrderDocumentsParserPlayImplTest extends FunSpec with Assertions with Matc
         poolMetadata.poolDigest shouldBe Some(
           PoolDigest("mevsH/v7+OdQwto4gzGD713EfsR3+ZQriDSWHB3mllM=".getBytes(UTF_8).toIndexedSeq, algorithm = "SHA-256")
         )
-        poolMetadata.productId shouldBe "ejs"
+        poolMetadata.productId shouldEqual EJS.id
       }      
     }
     
@@ -525,7 +527,7 @@ class OrderDocumentsParserPlayImplTest extends FunSpec with Assertions with Matc
       withClue("docPath")(m.docPath shouldEqual Paths.get("order.metadata"))
       val expectedHedgingData = OrderHedgingData(
         Map(
-          "ems" -> Seq(DrawHedgingData(poolId = "ems/2016-08-19", LocalDate.of(2016, 8, 19), hedgingChannel = Some("ILS")))
+          'ems -> Seq(DrawHedgingData(poolId = "ems/2016-08-19", LocalDate.of(2016, 8, 19), hedgingChannel = Some("ILS")))
         )
       )
       withClue("hedgingData")(m.hedgingData shouldEqual expectedHedgingData)

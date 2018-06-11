@@ -41,11 +41,11 @@ object ParticipationPools {
   private val ParticipationPoolIdDateFormat = DateTimeFormatter.ISO_LOCAL_DATE
 
   def formatParticipationPoolId(gamingProductId: GamingProductId, drawDate: LocalDate): ParticipationPoolId = {
-    gamingProductId + "/" + ParticipationPoolIdDateFormat.format(drawDate)
+    gamingProductId.name + "/" + ParticipationPoolIdDateFormat.format(drawDate)
   }
 
   def parseParticipationPoolId(id: ParticipationPoolId): (GamingProductId, LocalDate) = id match {
-    case ParticipationPoolIdPattern(gamingProductId, drawDate) => (gamingProductId, LocalDate.parse(drawDate, ParticipationPoolIdDateFormat))
+    case ParticipationPoolIdPattern(gamingProductId, drawDate) => (Symbol(gamingProductId), LocalDate.parse(drawDate, ParticipationPoolIdDateFormat))
   }
 }
 

@@ -25,6 +25,8 @@ class PoolResourceProviderTarGzImpl(
   private val logger = LoggerFactory.getLogger(getClass)
 
   private var cachedPoolMetadata = Option.empty[Try[PoolMetadata]]
+  private var cachedPoolDigestTimestamp: Option[Try[PoolDigestTimestamp]] = None
+  
   private val orderDocsCache: Cache[String, Try[OrderDocs]] = CacheBuilder.newBuilder()
     .maximumSize(orderDocsCacheSize).build().asInstanceOf[Cache[String, Try[OrderDocs]]]
 
@@ -54,7 +56,13 @@ class PoolResourceProviderTarGzImpl(
         Observable
           .repeatEval(tarIn.getNextTarEntry)
           .takeWhile(_ != null || orderDocsBuilder.hasPartialOrderDocs)
-          .doOnTerminate(_ => tarIn.close())
+          .doOnTerminate { _ =>
+            cachedPoolMetadata = Some(orderDocsBuilder.cachedPoolMetadata
+              .getOrElse(Failure(new FileNotFoundException(s"not found: ${Paths.get(Filenames.Metadata)}"))))
+            cachedPoolDigestTimestamp = Some(orderDocsBuilder.cachedPoolDigestTimestamp
+              .getOrElse(Failure(new FileNotFoundException(s"not found: ${Paths.get(Filenames.PoolDigestTimestamp)}"))))
+            tarIn.close()
+          }
           .doOnSubscriptionCancel(() => tarIn.close())
           .map(entry => orderDocsBuilder.processEntry(entry))
           .collect { case Some(orderDocs) => orderDocs }
@@ -81,7 +89,8 @@ class PoolResourceProviderTarGzImpl(
 
   override def getPoolMetadata(): Try[PoolMetadata] = {
     cachedPoolMetadata match {
-      case Some(result) => result
+      case Some(result) => 
+        result
       case _ =>
         val filePath = Paths.get(Filenames.Metadata)
         val tmp = getFileContent(filePath).transform(
@@ -104,7 +113,7 @@ class PoolResourceProviderTarGzImpl(
           } else {
             Try(IOUtils.toByteArray(tarIn, entry.getSize.toInt).toIndexedSeq)
           }
-        }.getOrElse(Failure(new Exception(s"not found: $path")))
+        }.getOrElse(Failure(new FileNotFoundException(s"not found: $path")))
       tarIn.close()
       result
     }
@@ -126,18 +135,24 @@ class PoolResourceProviderTarGzImpl(
     getOrderDocs(orderId).flatMap(_.orderMetadata)
   }
 
-  override def getPoolDigestTimestamp(): Try[PoolDigestTimestamp] = {
-    readFromFile[PoolDigestTimestamp](Paths.get(Filenames.PoolDigestTimestamp)) { (data, filePath) =>
-      orderDocsParser.parsePoolDigestTimestamp(data, filePath)
-    }
+  override def getPoolDigestTimestamp(): Try[PoolDigestTimestamp] = cachedPoolDigestTimestamp match {
+    case Some(result) => 
+      result
+    case _ =>
+      val tmp = readFromFile[PoolDigestTimestamp](Paths.get(Filenames.PoolDigestTimestamp)) { (data, filePath) =>
+        orderDocsParser.parsePoolDigestTimestamp(data, filePath)
+      }
+      cachedPoolDigestTimestamp = Some(tmp)
+      tmp
   }
-
 
   private class OrderDocsBuilder(
     tarIn: TarArchiveInputStream,
-    filter: Option[TarArchiveEntry => Boolean] = None,
-    private var currentPartialDocs: Option[PartialOrderDocs] = None
+    filter: Option[TarArchiveEntry => Boolean] = None
   ) {
+    var cachedPoolMetadata: Option[Try[PoolMetadata]] = None
+    var cachedPoolDigestTimestamp: Option[Try[PoolDigestTimestamp]] = None
+    private var currentPartialDocs: Option[PartialOrderDocs] = None
 
     def hasPartialOrderDocs: Boolean = currentPartialDocs.nonEmpty
 
@@ -154,6 +169,19 @@ class PoolResourceProviderTarGzImpl(
             currentPartialDocs = Some(PartialOrderDocs(orderId = Paths.get(entry.getName).getFileName.toString))
             tmp
           } else {
+            if(currentPartialDocs.isEmpty) {
+              //read & cache some top-level documents if so
+              entry.getName match {
+                case Filenames.PoolDigestTimestamp =>
+                  val data = IOUtils.toByteArray(tarIn, entry.getSize.toInt)
+                  cachedPoolDigestTimestamp = Some(orderDocsParser.parsePoolDigestTimestamp(data, Paths.get(Filenames.PoolDigestTimestamp)))
+                case Filenames.Metadata =>
+                  val data = IOUtils.toByteArray(tarIn, entry.getSize.toInt)
+                  cachedPoolMetadata = Some(orderDocsParser.parsePoolData(data, Paths.get(Filenames.Metadata)))
+                case other => 
+                  logger.info(s"unexpected file: $other")
+              }              
+            }
             currentPartialDocs = currentPartialDocs.map(partialDocs => amendedPartialOrderDocs(partialDocs, entry))
             None
           }
@@ -185,7 +213,7 @@ class PoolResourceProviderTarGzImpl(
           partialDocs.copy(
             orderMetadata = Some(orderDocsParser.parseOrderMetadata(data, Paths.get(entry.getName))))
         case other =>
-          logger.debug(s"unexpected OrderDoc: $other (orderId: ${partialDocs.orderId})")
+          logger.info(s"unexpected OrderDoc: $other (orderId: ${partialDocs.orderId})")
           partialDocs
       }
     }

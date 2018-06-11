@@ -2,7 +2,7 @@ package model
 
 import java.nio.file.Path
 
-import domain.OrderId
+import domain.{OrderId, Origin, Retailer}
 import domain.PoolValidator.CheckResult
 import domain.products.GamingProduct._
 import model.ApplicationModel.{PoolSource, ValidationState}
@@ -48,6 +48,8 @@ case class ArchiveNavigatorItem(
 
 case class OrderDirNavigatorItem(
   relativePath: Path,
+  retailer: Retailer,
+  origin: Option[Origin],
   retailerOrderReference: String,
   validationState: ValidationState.Value,
   hasInvalidOrderDocs: Boolean,

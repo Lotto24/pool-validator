@@ -1,23 +1,28 @@
 package view
 
 import java.nio.charset.StandardCharsets
+import java.text.NumberFormat
 import java.time.format.{DateTimeFormatter, FormatStyle}
 import java.util.Locale
-import javafx.beans.binding.Bindings
-import javafx.scene.Node
-import javafx.scene.control._
-import javafx.scene.layout._
 
+import com.sun.javafx.scene.control.skin.TableViewSkin
 import domain._
 import domain.products.Bet
-import domain.products.GamingProduct.GamingProductId
 import domain.products.ejs.EjsBet
 import domain.products.ems.EmsBet
 import domain.products.gls.GlsBet
 import domain.products.glss.GlsSBet
 import domain.products.s6.S6Bet
 import domain.products.s77.S77Bet
+import javafx.beans.binding.Bindings
+import javafx.beans.property.SimpleDoubleProperty
+import javafx.scene.Node
+import javafx.scene.control._
+import javafx.scene.layout._
+import model.ArchiveDetailData.BetBreakdownRowItem
 import model._
+import scalafx.Includes._
+import scalafx.scene.control.{Label, TextField}
 import view.CssClass.Color
 import view.DetailView._
 import view.JfxImplicits._
@@ -26,8 +31,6 @@ import view.impl.StructureElements.{EmptyPanelHint, SectionSeparator, VSpacer, V
 
 import scala.collection.JavaConversions._
 import scala.util.Try
-import scalafx.Includes._
-import scalafx.scene.control.{Label, TextField}
 
 
 class DetailView extends VBox {
@@ -224,7 +227,8 @@ object DetailView {
   
   class OrderDetailPane extends VBox with DetailPane[OrderDocDetailData[Order]] {
     private val kvl_meta_creationDate = new KeyValuePair("Creation date", cssClass = "metadata")
-    private val kvl_meta_retailCustomer = new KeyValuePair("Retail customer", cssClass = "metadata")
+    private val kvl_meta_retailCustomerId = new KeyValuePair("Retail customer", cssClass = "metadata")
+    private val kvl_meta_retailer = new KeyValuePair("Retailer", cssClass = "metadata")
     private val kvl_meta_retailerHref = new KeyValuePair("Retailer HREF", cssClass = "metadata")
     private val kvl_meta_retailerOrderReference = new KeyValuePair("Retailer order reference", cssClass = "metadata")
 
@@ -245,7 +249,8 @@ object DetailView {
 
       metaDataGroup.getChildren.addAll(
         kvl_meta_creationDate,
-        kvl_meta_retailCustomer,
+        kvl_meta_retailCustomerId,
+        kvl_meta_retailer,
         kvl_meta_retailerHref,
         kvl_meta_retailerOrderReference)
 
@@ -260,7 +265,8 @@ object DetailView {
       kvl_meta_creationDate.setValue {
         Try(dateFormatter2.format(data.doc.metaData.creationDate)).getOrElse(data.doc.metaData.creationDate.toString)
       }
-      kvl_meta_retailCustomer setValue data.doc.metaData.retailCustomer
+      kvl_meta_retailCustomerId setValue data.doc.metaData.retailCustomerId
+      kvl_meta_retailer setValue data.doc.metaData.retailer.name
       kvl_meta_retailerHref setValue data.doc.metaData.retailerHref
       kvl_meta_retailerOrderReference setValue data.doc.metaData.retailerOrderReference
 
@@ -435,7 +441,7 @@ object DetailView {
         getStyleClass += "productid"
         setText("ProductId")
         setPrefWidth(100)  //INFO the width currently cannot be set via CSS when the columns shall be resizable..
-        this.addCellValuePojoSource(_.getValue.productId)
+        this.addCellValuePojoSource(_.getValue.productId.name)
       }
 
       tableView.getColumns += new TableColumn[OrderHedgingDetailData.RowData, String] {
@@ -513,14 +519,27 @@ object DetailView {
       getStyleClass.add("betscountperproduct")
     }
 
-    private val kvl_ordersCount = new KeyValuePair("Orders count", simpleLabel = true)
+    private val numberFormat = NumberFormat.getInstance(Locale.UK)
+    
+    private val kvl_ordersCount = new KeyValuePair("Total orders count", simpleLabel = true)
+    private val table_betCountBreakdown = new TableView[BetBreakdownRowItem] {
+      val headerHeightProperty: SimpleDoubleProperty = new SimpleDoubleProperty(0)
+      skinProperty().onChange((_,_,newSkin) => {
+        headerHeightProperty.bind(newSkin.asInstanceOf[TableViewSkin[BetBreakdownRowItem]].getTableHeaderRow.heightProperty())
+      })
+      override def createDefaultSkin(): Skin[_ <: Skinnable] = new TableViewSkin[BetBreakdownRowItem](this){
+        override def computePrefWidth(height: Double, topInset: Double, rightInset: Double, bottomInset: Double, leftInset: Double): Double = {
+          super.computePrefWidth(height, topInset, rightInset, bottomInset, leftInset) + 17 //workaround to avoid horizontal scrollbars in some edge cases
+        }
+      }
+    }
 
     private val kvl_archiveFile = new KeyValuePair("Archive file")
     private val kvl_extractedToDir = new KeyValuePair("Archive directory")
 
     private val kvl_poolMetadata_productId = new KeyValuePair("Product Id")
     private val kvl_poolMetadata_poolId = new KeyValuePair("Pool Id")
-    private val kvl_poolMetadata_drawDate = new KeyValuePair("drawDate")
+    private val kvl_poolMetadata_drawDate = new KeyValuePair("Draw date")
 
     private val kvl_poolMetadata_poolDigestBase64 = new KeyValuePair("Digest-data")
     private val kvl_poolMetadata_poolDigestAlgorithm = new KeyValuePair("Algorithm")
@@ -531,16 +550,15 @@ object DetailView {
     private val kvl_validOrdersCount = new KeyValuePair("Valid orders count", simpleLabel = true)
     private val kvl_invalidCount = new KeyValuePair("Invalid orders count", simpleLabel = true)
 
-    private var betsCountPerProduct_old : Option[Map[GamingProductId, Int]] = null
-
     override val title : String = "Pool archive details"
 
     locally {
       getStyleClass.addAll("detail-pane", "archive-detail-pane")
       getChildren.addAll(
-        new SectionSeparator("Orders count"),
+        new SectionSeparator("Orders and bets statistics"),
         kvl_ordersCount,
         grpBetsCountPerProduct,
+        table_betCountBreakdown,
         new SectionSeparator("Archive metadata"),
         kvl_poolMetadata_productId,
         kvl_poolMetadata_poolId,
@@ -554,41 +572,26 @@ object DetailView {
         new SectionSeparator("Archive locations"),
         kvl_archiveFile, kvl_extractedToDir
       )
+      
+      this.setFillWidth(false)
+      VBox.setVgrow(table_betCountBreakdown, Priority.ALWAYS)
     }
 
-
     override def setData(data: ArchiveDetailData): Unit = {
-
-      kvl_ordersCount.setValue(data.orderStats.totalOrdersCount.toString)
-
-      if( (betsCountPerProduct_old == null) || ! (data.orderStats.betsCountPerProduct eq betsCountPerProduct_old)) {
-
-        betsCountPerProduct_old = data.orderStats.betsCountPerProduct
-
-        grpBetsCountPerProduct.getChildren.clear()
-
-        val k: Option[Map[GamingProductId, Int]] = data.orderStats.betsCountPerProduct
-
-        data.orderStats.betsCountPerProduct match {
-          case Some(betsCountPerProduct) =>
-            betsCountPerProduct.foreach { case (productId, betsCount) =>
-              val kvl_betsCountForProduct = new KeyValuePair(s"# ${productId.toString}-Bets", simpleLabel = true)
-              kvl_betsCountForProduct.getStyleClass.add("betscountperproduct")
-              kvl_betsCountForProduct.setValue(betsCount.toString)
-              grpBetsCountPerProduct.getChildren.add(kvl_betsCountForProduct)
-            }
-          case _ =>
-            val kvl_betsCountForProduct = new KeyValuePair(s"Bets count per product", simpleLabel = true)
-            kvl_betsCountForProduct.getStyleClass.addAll("betscountperproduct")
-            kvl_betsCountForProduct.setValue("Not yet available")
-            grpBetsCountPerProduct.getChildren.add(kvl_betsCountForProduct)
-        }
+      initBetCountBreakdownTableView(data)
+      kvl_ordersCount.setValue(numberFormat.format(data.orderStats.totalOrdersCount))
+      grpBetsCountPerProduct.getChildren.clear()
+      data.orderStats.betsCountPerProduct.foreach { case (productId, betsCount) =>
+        val kvl_betsCountForProduct = new KeyValuePair(s"# ${productId.name}-bets (total)", simpleLabel = true)
+        kvl_betsCountForProduct.getStyleClass.add("betscountperproduct")
+        kvl_betsCountForProduct.setValue(numberFormat.format(betsCount))
+        grpBetsCountPerProduct.getChildren.add(kvl_betsCountForProduct)
       }
 
       kvl_archiveFile.setValue(data.poolSource.path.toString)
       kvl_extractedToDir.setValue(data.extractedToDir.toString)
 
-      kvl_poolMetadata_productId.setValue(data.poolMetadata.productId)
+      kvl_poolMetadata_productId.setValue(data.poolMetadata.productId.name)
       kvl_poolMetadata_poolId.setValue(data.poolMetadata.participationPoolId)
       kvl_poolMetadata_drawDate.setValue(data.poolMetadata.drawDate.toString)
 
@@ -601,9 +604,56 @@ object DetailView {
       )
 
       kvl_validationState.setValue(data.validationState.toString)
-      kvl_totalOrdersCount.setValue(data.totalOrdersCount.toString)
-      kvl_validOrdersCount.setValue(data.validOrdersCount.toString)
-      kvl_invalidCount.setValue(data.invalidOrdersCount.toString)
+      kvl_totalOrdersCount.setValue(numberFormat.format(data.totalOrdersCount))
+      kvl_validOrdersCount.setValue(numberFormat.format(data.validOrdersCount))
+      kvl_invalidCount.setValue(numberFormat.format(data.invalidOrdersCount))
+    }
+
+    private def initBetCountBreakdownTableView(data: ArchiveDetailData): Unit = {
+      val columnsBuilder = Vector.newBuilder[TableColumn[BetBreakdownRowItem, _]]
+      
+      table_betCountBreakdown.getStyleClass += "betcount-breakdown"
+
+      val heightBinding = table_betCountBreakdown.fixedCellSizeProperty().multiply(Bindings.size(table_betCountBreakdown.getItems()))
+        .add(table_betCountBreakdown.headerHeightProperty).add(2)
+      table_betCountBreakdown.prefHeightProperty().bind(heightBinding)
+      table_betCountBreakdown.minHeightProperty().bind(heightBinding)
+      table_betCountBreakdown.maxHeightProperty().bind(heightBinding)
+
+      columnsBuilder += new TableColumn[BetBreakdownRowItem, String] {
+        getStyleClass += "retailer"
+        setText("Retailer")
+        setPrefWidth(200) //INFO setting this via css (`-fx-pref-width`) causes layout problems since the value is NOT applied to `TableColumn.prefWidthProp`!
+        this.addCellValuePojoSource(_.getValue.retailer.name)
+      }
+      columnsBuilder += new TableColumn[BetBreakdownRowItem, String] {
+        getStyleClass += "origin"
+        setText("Origin")
+        setPrefWidth(200)
+        this.addCellValuePojoSource(_.getValue.origin.map(_.name).getOrElse("<none>"))
+      }
+      columnsBuilder += new TableColumn[BetBreakdownRowItem, String] {
+        getStyleClass += "orders-count"
+        setText("#orders")
+        setPrefWidth(200)
+        this.addCellValuePojoSource(x => numberFormat.format(x.getValue.ordersCount))
+      }
+      columnsBuilder ++= data.productIds.toVector.sortBy(_.name).map { productId =>
+        new TableColumn[BetBreakdownRowItem, String] {
+          getStyleClass += "betcount"
+          setText(s"#${productId.name}-bets")
+          setPrefWidth(200)
+          this.addCellValuePojoSource(x => numberFormat.format(x.getValue.betCountPerProduct.getOrElse(productId, 0)))
+        }        
+      }
+      
+      table_betCountBreakdown.getColumns.setAll(columnsBuilder.result().map { column =>
+        column.impl_setReorderable(false)
+        column.setSortable(false)
+        column
+      })
+      
+      table_betCountBreakdown.getItems.setAll(data.betBreakdownRowData)
     }
   }
 }

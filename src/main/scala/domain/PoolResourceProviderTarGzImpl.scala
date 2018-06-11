@@ -148,11 +148,11 @@ class PoolResourceProviderTarGzImpl(
 
   private class OrderDocsBuilder(
     tarIn: TarArchiveInputStream,
-    filter: Option[TarArchiveEntry => Boolean] = None,
-    var cachedPoolMetadata: Option[Try[PoolMetadata]] = None,
-    var cachedPoolDigestTimestamp: Option[Try[PoolDigestTimestamp]] = None,
-    private var currentPartialDocs: Option[PartialOrderDocs] = None
+    filter: Option[TarArchiveEntry => Boolean] = None
   ) {
+    var cachedPoolMetadata: Option[Try[PoolMetadata]] = None
+    var cachedPoolDigestTimestamp: Option[Try[PoolDigestTimestamp]] = None
+    private var currentPartialDocs: Option[PartialOrderDocs] = None
 
     def hasPartialOrderDocs: Boolean = currentPartialDocs.nonEmpty
 

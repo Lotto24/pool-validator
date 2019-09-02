@@ -53,17 +53,17 @@ trait OrderDocumentsParser {
   def parseOrderResult(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderResult]
 
   def parseOrderResultSignature(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderResultSignature]
-  
+
   def parseOrderResultSignatureTimestamp(base64Bytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderResultSignatureTimestamp]
-  
+
   def parseOrderMetadata(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderMetadata]
 
   def parseOrderSignature(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderSignature]
 
   def parsePoolData(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[PoolMetadata]
-  
+
   def parsePoolDigestTimestamp(data: scala.IndexedSeq[Byte], filePath: Path): Try[PoolDigestTimestamp]
-  
+
 }
 
 object OrderDocumentsParser {
@@ -78,7 +78,7 @@ object OrderDocumentsParser {
     def create(productURI: URI, orderData: JsObject, docPath: Path): Try[GamingProductOrder]
 
   }
-    
+
 }
 
 
@@ -121,7 +121,7 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
       rawData = jsonBytes
     )
   }
-  
+
   override def parseOrderResultSignatureTimestamp(base64Bytes: scala.IndexedSeq[Byte], filePath: Path): Try[OrderResultSignatureTimestamp] = Try {
     val data = Base64.getDecoder.decode(base64Bytes.toArray)
     val tsResponse = Try {
@@ -178,7 +178,7 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
       rawData = jsonBytes
     )
   }
-  
+
   override def parsePoolData(jsonBytes: scala.IndexedSeq[Byte], filePath: Path): Try[PoolMetadata] = Try {
     val node = Json.parse(jsonBytes.toArray)
     val productUri = new URI((node \ "gaming-product").as[String])
@@ -210,7 +210,7 @@ class OrderDocumentsParserPlayImpl(productOrderFactory: ProductOrderFactory) ext
     PoolDigestTimestamp(value = new String(data.toArray, StandardCharsets.UTF_8),
       docPath = filePath, rawData = data)
   }
-    
+
 }
 
 
@@ -236,7 +236,10 @@ abstract class ProductOrderFactoryAI[B, P, O <: GamingProductOrder] extends Prod
     Try {
       val bets = parseBets((orderData \ "bets").as[JsArray].value.asInstanceOf[Seq[JsObject]])
       val partPools = parseParticipationPools((orderData \ "participation-pools").as[JsObject])
-      val variant = (orderData \ "variant").toOption.map(_.as[String])
+      val variant: Option[String] = (orderData \ "variant").toOption.flatMap {
+        case JsNull => None
+        case x => Some(x.as[String])
+      }
       createOrder(bets, partPools, variant, orderData).asInstanceOf[GamingProductOrder]
     }
   }

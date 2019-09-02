@@ -44,7 +44,7 @@ trait PoolValidator {
   def validatePoolSeal(
     orderIds: IndexedSeq[String], poolMetadata: Try[PoolMetadata], drawTime: Try[Instant], cbProgress: Option[ProgressIndicator] = None
   ): IndexedSeq[CheckResult]
-  
+
   /**
     * Validates a participation pool at the given poolLocation.
     **/
@@ -56,7 +56,7 @@ trait PoolValidator {
 object PoolValidator {
 
   type ProgressIndicator = Double => Unit
-  
+
   trait IntermediateResultCallback {
 
     def onOrderValidated(result: OrderValidationResult, countValidatedOrders: Int)
@@ -506,9 +506,9 @@ class PoolValidatorImpl(
 
   override def validateOrder(orderId: OrderId, drawtime: Try[Instant]): Task[OrderValidationResult] = {
     Task (
-      resourceProvider.getOrderDocs(orderId).map { orderDocs  => 
+      resourceProvider.getOrderDocs(orderId).map { orderDocs  =>
         validateOrderDocs(orderDocs, drawtime, resourceProvider.getPoolMetadata())
-      } match { 
+      } match {
         case Success(result) => result
         case Failure(t) => throw t
       }
@@ -585,7 +585,7 @@ class PoolValidatorImpl(
         )
       }
     }
-    resultFuture.onErrorRecoverWith { case t => 
+    resultFuture.onErrorRecoverWith { case t =>
       Task.raiseError[ArchiveValidationResult](new Exception(s"Validation of participation pool not possible; ${t.getMessage}", t))
     }
   }
@@ -616,11 +616,11 @@ class PoolValidatorImpl(
         case Success(pooldigest) =>
           val allOrderIds = orderIds.sorted
           val messageDigest = MessageDigest.getInstance(pooldigest.algorithm)
-          allOrderIds.zipWithIndex.foreach { case (d, index) => 
+          allOrderIds.zipWithIndex.foreach { case (d, index) =>
             messageDigest.update(d.getBytes(StandardCharsets.UTF_8))
             cbProgress.foreach { progressUpdateCb =>
               val progressPercent: Double = Math.round((index / allOrderIds.size.toDouble) * 100.0) / 100.0
-              progressUpdateCb(progressPercent) 
+              progressUpdateCb(progressPercent)
             }
           }
           val computedPoolDigest = messageDigest.digest()
